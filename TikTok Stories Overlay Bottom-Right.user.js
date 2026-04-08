@@ -3,7 +3,7 @@
 // @namespace    https://example.com/tiktok-overlay-bottom-right
 // @version      2.6
 // @description  Bottom-right overlay with multiple controls for TikTok stories – updated green color
-// @match        https://www.tiktok.com/@*
+// @match        https://www.tiktok.com/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -138,30 +138,41 @@
        Reliable TikTok arrow click
     ========================== */
     function clickTikTokArrow() {
-        let svg = document.querySelector(
-            '#stories-player > div.css-1uvgqxq-7937d88b--DivStoriesContentContainer.eif2g2u1.stories-player-transition-exit-done > div:nth-child(3) > button > div > div > svg'
-        );
+        // Try Keyboard event first (ArrowRight) - often more stable in SPAs
+        const arrowRightEv = new KeyboardEvent('keydown', {
+            key: 'ArrowRight',
+            code: 'ArrowRight',
+            keyCode: 39,
+            which: 39,
+            bubbles: true,
+            cancelable: true
+        });
+        document.dispatchEvent(arrowRightEv);
+
+        // Fallback to finding and clicking the DOM button
+        let svg = document.querySelector('#stories-player button svg.flip-rtl');
 
         if (!svg) {
-            const controls = document.querySelectorAll('#stories-player button svg');
-            if (controls.length >= 2) svg = controls[controls.length - 1];
+            // Find all svgs in stories player, usually the last one is 'next'
+            const allSvgs = document.querySelectorAll('#stories-player button svg');
+            if (allSvgs.length >= 2) {
+                svg = allSvgs[allSvgs.length - 1];
+            }
         }
 
         if (!svg) {
-            svg = document.querySelector('#stories-player svg.flip-rtl, #stories-player svg path[d*="28.74 24"]');
+            // Search for path that looks like an arrow
+            svg = document.querySelector('#stories-player svg path[d*="28.74 24"]')?.closest('svg');
         }
 
-        if (!svg) return false;
+        if (!svg) return true; // Return true because Keyboard event might have worked
 
         const button = svg.closest('button');
-        if (!button) return false;
+        if (!button) return true;
 
-        ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type => {
-            const ev = type.includes('pointer')
-                ? new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'mouse', isPrimary: true })
-                : new MouseEvent(type, { bubbles: true, cancelable: true });
-            button.dispatchEvent(ev);
-        });
+        // Dispatch fewer events to avoid "Something went wrong" (often caused by event flooding or illegal states)
+        const clickEv = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+        button.dispatchEvent(clickEv);
 
         return true;
     }
@@ -210,14 +221,21 @@
     ========================== */
     let currentUrl = location.href;
 
-    setInterval(() => {
-        if (location.href !== currentUrl) currentUrl = location.href;
+    function updateVisibility() {
+        if (location.href !== currentUrl) {
+            currentUrl = location.href;
+        }
 
-        const svg =
-            document.querySelector('#stories-player button svg.flip-rtl') ||
-            document.querySelector('#stories-player button svg:last-of-type');
+        // Check for stories player specifically
+        const isStory = !!document.querySelector('#stories-player');
 
-        overlay.style.display = svg ? 'flex' : 'none';
-    }, 300);
+        // Check if we are on a URL that typically hosts stories
+        const isStoryUrl = location.pathname.includes('/stories/');
+
+        overlay.style.display = (isStory || isStoryUrl) ? 'flex' : 'none';
+    }
+
+    setInterval(updateVisibility, 500);
+    updateVisibility();
 
 })();
