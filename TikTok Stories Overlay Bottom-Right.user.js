@@ -171,23 +171,28 @@
 
         // 1. Multi-stage button discovery
         const findButton = () => {
-            // A. Data-e2e and Test attributes (most stable)
-            let b = document.querySelector('[data-e2e="arrow-right"], [data-e2e="story-next"], [data-testid="story-next-button"]');
+            // A. Specific TikTok TUXButton patterns (user provided)
+            let b = document.querySelector('button.action-item svg.flip-rtl')?.closest('button') ||
+                    document.querySelector('button[class*="TUXButton"] svg.flip-rtl')?.closest('button');
             if (b) return b;
 
-            // B. ARIA labels (Check all buttons globally first)
+            // B. Data-e2e and Test attributes (most stable)
+            b = document.querySelector('[data-e2e="arrow-right"], [data-e2e="story-next"], [data-testid="story-next-button"]');
+            if (b) return b;
+
+            // C. ARIA labels (Check all buttons globally first)
             b = document.querySelector('button[aria-label*="Next"], button[aria-label*="next"], button[aria-label*="arrow-right"]');
             if (b) return b;
 
-            // C. Search within stories player
-            const player = document.querySelector('#stories-player, [data-e2e="stories-player"], [class*="DivStoriesContentContainer"]');
+            // D. Search within stories player
+            const player = document.querySelector('#stories-player, [data-e2e="stories-player"], [class*="DivStoriesContentContainer"], [class*="DivStoriesViewerContainer"]');
             if (player) {
                 // Try to find by SVG path
                 const svg = player.querySelector('svg.flip-rtl') ||
                             player.querySelector('svg path[d*="28.74 24"]')?.closest('svg');
                 if (svg) return svg.closest('button');
 
-                // D. Geometric fallback: find buttons on the right half of the player
+                // E. Geometric fallback: find buttons on the right half of the player
                 const rect = player.getBoundingClientRect();
                 const buttons = Array.from(player.querySelectorAll('button'));
                 for (const btn of buttons) {
@@ -238,6 +243,12 @@
             dispatch('pointerup', PointerEvent);
             dispatch('mouseup', MouseEvent);
             dispatch('click', MouseEvent);
+
+            // Final fallback: native .click()
+            try {
+                btn.click();
+            } catch (e) {}
+
             btn.focus();
         }, 20);
 
