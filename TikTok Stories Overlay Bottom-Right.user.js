@@ -138,41 +138,53 @@
        Reliable TikTok arrow click
     ========================== */
     function clickTikTokArrow() {
-        // Try Keyboard event first (ArrowRight) - often more stable in SPAs
-        const arrowRightEv = new KeyboardEvent('keydown', {
-            key: 'ArrowRight',
-            code: 'ArrowRight',
-            keyCode: 39,
-            which: 39,
-            bubbles: true,
-            cancelable: true
+        // 1. Try Keyboard events (ArrowRight) - very stable
+        const sendKey = (type) => {
+            const ev = new KeyboardEvent(type, {
+                key: 'ArrowRight',
+                code: 'ArrowRight',
+                keyCode: 39,
+                which: 39,
+                bubbles: true,
+                cancelable: true
+            });
+            document.dispatchEvent(ev);
+            window.dispatchEvent(ev);
+        };
+        sendKey('keydown');
+        sendKey('keyup');
+
+        // 2. Try to find the button via ARIA labels or specific classes
+        let btn =
+            document.querySelector('button[aria-label*="Next"]') ||
+            document.querySelector('button[aria-label*="next"]') ||
+            document.querySelector('#stories-player button[class*="ButtonNext"]');
+
+        // 3. Fallback to SVG/Path detection
+        if (!btn) {
+            const svg =
+                document.querySelector('#stories-player button svg.flip-rtl') ||
+                document.querySelector('#stories-player svg path[d*="28.74 24"]')?.closest('svg') ||
+                Array.from(document.querySelectorAll('#stories-player button svg')).pop();
+
+            if (svg) btn = svg.closest('button');
+        }
+
+        if (!btn) return true;
+
+        // 4. Dispatch events with a tiny delay to simulate real user and avoid "Something went wrong"
+        const eventSequence = ['mousedown', 'mouseup', 'click'];
+        eventSequence.forEach((type, i) => {
+            setTimeout(() => {
+                const ev = new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    detail: 1
+                });
+                btn.dispatchEvent(ev);
+            }, i * 10);
         });
-        document.dispatchEvent(arrowRightEv);
-
-        // Fallback to finding and clicking the DOM button
-        let svg = document.querySelector('#stories-player button svg.flip-rtl');
-
-        if (!svg) {
-            // Find all svgs in stories player, usually the last one is 'next'
-            const allSvgs = document.querySelectorAll('#stories-player button svg');
-            if (allSvgs.length >= 2) {
-                svg = allSvgs[allSvgs.length - 1];
-            }
-        }
-
-        if (!svg) {
-            // Search for path that looks like an arrow
-            svg = document.querySelector('#stories-player svg path[d*="28.74 24"]')?.closest('svg');
-        }
-
-        if (!svg) return true; // Return true because Keyboard event might have worked
-
-        const button = svg.closest('button');
-        if (!button) return true;
-
-        // Dispatch fewer events to avoid "Something went wrong" (often caused by event flooding or illegal states)
-        const clickEv = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-        button.dispatchEvent(clickEv);
 
         return true;
     }
