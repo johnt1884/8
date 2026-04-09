@@ -169,49 +169,18 @@
         if (now - lastClickTime < 500) return true; // Debounce
         lastClickTime = now;
 
-        // 1. Try Keyboard events (ArrowRight) - wrapped in try/catch to prevent TikTok internal errors from stopping our script
-        const sendKey = (type) => {
-            try {
-                const ev = new KeyboardEvent(type, {
-                    key: 'ArrowRight',
-                    code: 'ArrowRight',
-                    keyCode: 39,
-                    which: 39,
-                    location: 0,
-                    repeat: false,
-                    isComposing: false,
-                    ctrlKey: false,
-                    altKey: false,
-                    shiftKey: false,
-                    metaKey: false,
-                    bubbles: true,
-                    cancelable: true
-                });
-                // Some frameworks check for these explicitly
-                Object.defineProperty(ev, 'keyCode', { get: () => 39 });
-                Object.defineProperty(ev, 'which', { get: () => 39 });
-
-                window.dispatchEvent(ev);
-                document.dispatchEvent(ev);
-            } catch (err) {
-                console.error('Keyboard event dispatch failed, continuing:', err);
-            }
-        };
-        sendKey('keydown');
-        sendKey('keyup');
-
-        // 2. Multi-stage button discovery
+        // 1. Multi-stage button discovery
         const findButton = () => {
-            // A. Data-e2e attributes (most stable if present)
-            let b = document.querySelector('[data-e2e="arrow-right"], [data-e2e="story-next"]');
+            // A. Data-e2e and Test attributes (most stable)
+            let b = document.querySelector('[data-e2e="arrow-right"], [data-e2e="story-next"], [data-testid="story-next-button"]');
             if (b) return b;
 
-            // B. ARIA labels
-            b = document.querySelector('button[aria-label*="Next"], button[aria-label*="next"]');
+            // B. ARIA labels (Check all buttons globally first)
+            b = document.querySelector('button[aria-label*="Next"], button[aria-label*="next"], button[aria-label*="arrow-right"]');
             if (b) return b;
 
             // C. Search within stories player
-            const player = document.querySelector('#stories-player, [data-e2e="stories-player"]');
+            const player = document.querySelector('#stories-player, [data-e2e="stories-player"], [class*="DivStoriesContentContainer"]');
             if (player) {
                 // Try to find by SVG path
                 const svg = player.querySelector('svg.flip-rtl') ||
@@ -234,7 +203,7 @@
         const btn = findButton();
         if (!btn) return false;
 
-        // 3. Staggered "Human" click sequence
+        // 3. Staggered "Human" click sequence using Pointer and Mouse events
         const rect = btn.getBoundingClientRect();
         const clientX = rect.left + rect.width / 2;
         const clientY = rect.top + rect.height / 2;
@@ -245,16 +214,32 @@
             view: window,
             clientX,
             clientY,
-            buttons: 1
+            screenX: clientX,
+            screenY: clientY,
+            buttons: 1,
+            button: 0,
+            which: 1,
+            detail: 1,
+            pointerId: 1,
+            pointerType: 'mouse',
+            isPrimary: true
         };
 
-        setTimeout(() => btn.dispatchEvent(new MouseEvent('mousedown', common)), 0);
+        const dispatch = (type, Cls) => {
+            try {
+                btn.dispatchEvent(new Cls(type, common));
+            } catch (e) {}
+        };
+
+        dispatch('pointerdown', PointerEvent);
+        dispatch('mousedown', MouseEvent);
+
         setTimeout(() => {
-            btn.dispatchEvent(new MouseEvent('mouseup', common));
-            btn.dispatchEvent(new MouseEvent('click', { ...common, detail: 1 }));
-            // Also try focusing the button to trigger any focus-based state changes
+            dispatch('pointerup', PointerEvent);
+            dispatch('mouseup', MouseEvent);
+            dispatch('click', MouseEvent);
             btn.focus();
-        }, 30);
+        }, 20);
 
         return true;
     }
