@@ -14,9 +14,60 @@
     let overlay = null;
 
     /* =========================
+       Shared button style
+    ========================== */
+    const BASE_BTN_STYLE = `
+        cursor: pointer;
+        font-size: 32px;
+        user-select: none;
+        padding: 6px;
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+    `;
+
+    /* =========================
+       Clipboard helper
+    ========================== */
+    function copyToClipboard() {
+        navigator.clipboard.writeText(collectedUrls.join('\n')).catch(() => {});
+    }
+
+    /* =========================
+       Toast
+    ========================== */
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            z-index: 9999999;
+            font-size: 15px;
+            max-width: 80vw;
+            white-space: pre-wrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+        `;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+    }
+
+    /* =========================
        Overlay container
     ========================== */
     function ensureOverlay() {
+        if (!document.body) return;
         if (overlay && document.body.contains(overlay)) return;
 
         overlay = document.createElement('div');
@@ -32,7 +83,6 @@
             pointer-events: auto;
         `;
 
-        // ... build buttons ...
         createButtons(overlay);
 
         if (document.body) {
@@ -48,7 +98,7 @@
        Button Creation Logic
     ========================== */
     function createButtons(container) {
-        container.innerHTML = ''; // Clear existing
+        container.innerHTML = '';
 
         const progressBtn = document.createElement('div');
         progressBtn.textContent = '➡️';
@@ -109,56 +159,6 @@
         container.appendChild(delBtn);
     }
 
-    /* =========================
-       Toast
-    ========================== */
-    function showToast(message) {
-        const toast = document.createElement('div');
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            bottom: 90px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.85);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 8px;
-            z-index: 9999999;
-            font-size: 15px;
-            max-width: 80vw;
-            white-space: pre-wrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
-        `;
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
-    }
-
-    /* =========================
-       Shared button style (≈40% smaller)
-    ========================== */
-    const BASE_BTN_STYLE = `
-        cursor: pointer;
-        font-size: 32px;
-        user-select: none;
-        padding: 6px;
-        width: 50px;
-        height: 50px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-sizing: border-box;
-    `;
-
-
-    /* =========================
-       Clipboard helper
-    ========================== */
-    function copyToClipboard() {
-        navigator.clipboard.writeText(collectedUrls.join('\n')).catch(() => {});
-    }
 
     /* =========================
        Reliable TikTok arrow click
@@ -169,20 +169,33 @@
         if (now - lastClickTime < 500) return true; // Debounce
         lastClickTime = now;
 
-        // 1. Try Keyboard events (ArrowRight)
+        // 1. Try Keyboard events (ArrowRight) - wrapped in try/catch to prevent TikTok internal errors from stopping our script
         const sendKey = (type) => {
-            const ev = new KeyboardEvent(type, {
-                key: 'ArrowRight',
-                code: 'ArrowRight',
-                keyCode: 39,
-                which: 39,
-                bubbles: true,
-                cancelable: true
-            });
-            document.dispatchEvent(ev);
-            window.dispatchEvent(ev);
-            // Also try focusing the body first
-            document.body.dispatchEvent(ev);
+            try {
+                const ev = new KeyboardEvent(type, {
+                    key: 'ArrowRight',
+                    code: 'ArrowRight',
+                    keyCode: 39,
+                    which: 39,
+                    location: 0,
+                    repeat: false,
+                    isComposing: false,
+                    ctrlKey: false,
+                    altKey: false,
+                    shiftKey: false,
+                    metaKey: false,
+                    bubbles: true,
+                    cancelable: true
+                });
+                // Some frameworks check for these explicitly
+                Object.defineProperty(ev, 'keyCode', { get: () => 39 });
+                Object.defineProperty(ev, 'which', { get: () => 39 });
+
+                window.dispatchEvent(ev);
+                document.dispatchEvent(ev);
+            } catch (err) {
+                console.error('Keyboard event dispatch failed, continuing:', err);
+            }
         };
         sendKey('keydown');
         sendKey('keyup');
@@ -219,7 +232,7 @@
         };
 
         const btn = findButton();
-        if (!btn) return true;
+        if (!btn) return false;
 
         // 3. Staggered "Human" click sequence
         const rect = btn.getBoundingClientRect();
@@ -236,8 +249,12 @@
         };
 
         setTimeout(() => btn.dispatchEvent(new MouseEvent('mousedown', common)), 0);
-        setTimeout(() => btn.dispatchEvent(new MouseEvent('mouseup', common)), 30);
-        setTimeout(() => btn.dispatchEvent(new MouseEvent('click', { ...common, detail: 1 })), 40);
+        setTimeout(() => {
+            btn.dispatchEvent(new MouseEvent('mouseup', common));
+            btn.dispatchEvent(new MouseEvent('click', { ...common, detail: 1 }));
+            // Also try focusing the button to trigger any focus-based state changes
+            btn.focus();
+        }, 30);
 
         return true;
     }
