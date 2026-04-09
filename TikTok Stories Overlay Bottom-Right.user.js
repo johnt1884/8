@@ -1,32 +1,41 @@
 // ==UserScript==
 // @name         TikTok Stories Overlay Bottom-Right
 // @namespace    https://example.com/tiktok-overlay-bottom-right
-// @version      2.6
-// @description  Bottom-right overlay with multiple controls for TikTok stories – updated green color
-// @match        https://www.tiktok.com/@*
-// @run-at       document-idle
+// @version      2.7
+// @description  Bottom-right overlay with reliable next-story navigation (video-focused)
+// @match        *://*.tiktok.com/*
+// @run-at       document-start
 // @grant        none
 // ==/UserScript==
 
 (function () {
     'use strict';
     let collectedUrls = [];
+    let overlay = null;
 
     /* =========================
-       Overlay container
+       Shared button style
     ========================== */
-    const overlay = document.createElement('div');
-    overlay.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 9999999;
+    const BASE_BTN_STYLE = `
+        cursor: pointer;
+        font-size: 32px;
+        user-select: none;
+        padding: 6px;
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
         display: flex;
-        flex-direction: row;
-        gap: 10px;
-        pointer-events: auto;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
     `;
-    document.body.appendChild(overlay);
+
+    /* =========================
+       Clipboard helper
+    ========================== */
+    function copyToClipboard() {
+        navigator.clipboard.writeText(collectedUrls.join('\n')).catch(() => {});
+    }
 
     /* =========================
        Toast
@@ -55,169 +64,200 @@
     }
 
     /* =========================
-       Shared button style (≈40% smaller)
+       Overlay container
     ========================== */
-    const BASE_BTN_STYLE = `
-        cursor: pointer;
-        font-size: 32px;
-        user-select: none;
-        padding: 6px;
-        width: 50px;
-        height: 50px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-sizing: border-box;
-    `;
+    function ensureOverlay() {
+        if (!document.body) return;
+        if (overlay && document.body.contains(overlay)) return;
 
-    /* =========================
-       1. Progress-only (black bg, white border)
-    ========================== */
-    const progressBtn = document.createElement('div');
-    progressBtn.textContent = '➡️';
-    progressBtn.title = 'Progress to next story (no copy)';
-    progressBtn.style.cssText = `
-        ${BASE_BTN_STYLE}
-        background: black;
-        color: white;
-        border: 2px solid white;
-    `;
-    overlay.appendChild(progressBtn);
+        overlay = document.createElement('div');
+        overlay.id = 'tiktok-stories-overlay-custom';
+        overlay.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 9999999;
+            display: none;
+            flex-direction: row;
+            gap: 10px;
+            pointer-events: auto;
+        `;
 
-    /* =========================
-       2. Next + copy (transparent bg, green border)
-    ========================== */
-    const nextBtn = document.createElement('div');
-    nextBtn.textContent = '➡️';
-    nextBtn.title = 'Next story + copy URL';
-    nextBtn.style.cssText = `
-        ${BASE_BTN_STYLE}
-        background: transparent;
-        color: black;
-        border: 2px solid #377E47;
-    `;
-    overlay.appendChild(nextBtn);
+        createButtons(overlay);
 
-    /* =========================
-       3. Copy-only (green bg, no border)
-    ========================== */
-    const copyBtn = document.createElement('div');
-    copyBtn.textContent = '📋';
-    copyBtn.title = 'Copy current URL (no progress)';
-    copyBtn.style.cssText = `
-        ${BASE_BTN_STYLE}
-        background: #377E47;
-        color: white;
-        border: none;
-    `;
-    overlay.appendChild(copyBtn);
-
-    /* =========================
-       4. Clear (red bg, no border)
-    ========================== */
-    const delBtn = document.createElement('div');
-    delBtn.textContent = '🗑️';
-    delBtn.title = 'Clear collected URLs';
-    delBtn.style.cssText = `
-        ${BASE_BTN_STYLE}
-        background: red;
-        color: white;
-        border: none;
-    `;
-    overlay.appendChild(delBtn);
-
-    /* =========================
-       Clipboard helper
-    ========================== */
-    function copyToClipboard() {
-        navigator.clipboard.writeText(collectedUrls.join('\n')).catch(() => {});
+        if (document.body) {
+            document.body.appendChild(overlay);
+        } else {
+            document.addEventListener('DOMContentLoaded', () => {
+                document.body.appendChild(overlay);
+            });
+        }
     }
 
     /* =========================
-       Reliable TikTok arrow click
+       Button Creation Logic
     ========================== */
-    function clickTikTokArrow() {
-        let svg = document.querySelector(
-            '#stories-player > div.css-1uvgqxq-7937d88b--DivStoriesContentContainer.eif2g2u1.stories-player-transition-exit-done > div:nth-child(3) > button > div > div > svg'
-        );
+    function createButtons(container) {
+        container.innerHTML = '';
 
-        if (!svg) {
-            const controls = document.querySelectorAll('#stories-player button svg');
-            if (controls.length >= 2) svg = controls[controls.length - 1];
+        const progressBtn = document.createElement('div');
+        progressBtn.textContent = '➡️';
+        progressBtn.title = 'Progress to next story (no copy)';
+        progressBtn.style.cssText = BASE_BTN_STYLE + 'background: black; color: white; border: 2px solid white;';
+        progressBtn.onclick = (e) => {
+            e.stopPropagation();
+            if (!simulateNextStory()) showToast('❌ No active video found');
+            else showToast('✅ Advanced to next story');
+        };
+        container.appendChild(progressBtn);
+
+        const nextBtn = document.createElement('div');
+        nextBtn.textContent = '➡️';
+        nextBtn.title = 'Next story + copy URL';
+        nextBtn.style.cssText = BASE_BTN_STYLE + 'background: transparent; color: black; border: 2px solid #377E47;';
+        nextBtn.onclick = (e) => {
+            e.stopPropagation();
+            const url = location.href;
+            if (!collectedUrls.includes(url)) {
+                collectedUrls.push(url);
+                copyToClipboard();
+                showToast(`✅ Copied & advanced:\n${url}`);
+            } else {
+                showToast(`✅ Already collected, advanced:\n${url}`);
+            }
+            if (!simulateNextStory()) showToast('❌ No active video found');
+        };
+        container.appendChild(nextBtn);
+
+        const copyBtn = document.createElement('div');
+        copyBtn.textContent = '📋';
+        copyBtn.title = 'Copy current URL (no progress)';
+        copyBtn.style.cssText = BASE_BTN_STYLE + 'background: #377E47; color: white; border: none;';
+        copyBtn.onclick = (e) => {
+            e.stopPropagation();
+            const url = location.href;
+            if (!collectedUrls.includes(url)) {
+                collectedUrls.push(url);
+                copyToClipboard();
+                showToast(`✅ Copied:\n${url}`);
+            } else {
+                showToast(`ℹ️ Already collected:\n${url}`);
+            }
+        };
+        container.appendChild(copyBtn);
+
+        const delBtn = document.createElement('div');
+        delBtn.textContent = '🗑️';
+        delBtn.title = 'Clear collected URLs';
+        delBtn.style.cssText = BASE_BTN_STYLE + 'background: red; color: white; border: none;';
+        delBtn.onclick = (e) => {
+            e.stopPropagation();
+            collectedUrls = [];
+            copyToClipboard();
+            showToast('🗑️ Collected URLs cleared');
+        };
+        container.appendChild(delBtn);
+    }
+
+    /* =========================
+       VIDEO-FOCUSED Story Progression (v2.7)
+    ========================== */
+    let lastKeyTime = 0;
+    function simulateNextStory() {
+        const now = Date.now();
+        if (now - lastKeyTime < 500) return true; // Debounce
+        lastKeyTime = now;
+
+        // 1. Find STORY VIDEO specifically (most reliable target)
+        const videoSelectors = [
+            'video',  // Primary
+            '[class*="StoriesPlayerVideo"] video',
+            '[class*="DivStoriesContent"] video',
+            '#stories-player video',
+            '[data-e2e="stories-player"] video',
+            '.stories-player video',
+            '[class*="StoriesViewer"] video'
+        ];
+
+        let target = null;
+        for (let sel of videoSelectors) {
+            target = document.querySelector(sel);
+            if (target && target.tagName === 'VIDEO') break;
         }
 
-        if (!svg) {
-            svg = document.querySelector('#stories-player svg.flip-rtl, #stories-player svg path[d*="28.74 24"]');
+        if (!target) {
+            console.log('No story video found. All videos:', document.querySelectorAll('video').length);
+            return false;
         }
 
-        if (!svg) return false;
+        // 2. Focus ONLY the video (prevents modal exit)
+        target.focus({preventScroll: true});
+        target.style.outline = 'none';
 
-        const button = svg.closest('button');
-        if (!button) return false;
+        // 3. ArrowRight keys (video handles progression)
+        const dispatchKey = (type) => {
+            const ev = new KeyboardEvent(type, {
+                key: 'ArrowRight', code: 'ArrowRight',
+                keyCode: 39, which: 39, charCode: 0,
+                bubbles: true, cancelable: true,
+                ctrlKey: false, shiftKey: false
+            });
+            target.dispatchEvent(ev);
+            // Only bubble if video didn't handle it
+            if (ev.defaultPrevented === false) {
+                document.dispatchEvent(ev);
+            }
+        };
 
-        ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type => {
-            const ev = type.includes('pointer')
-                ? new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'mouse', isPrimary: true })
-                : new MouseEvent(type, { bubbles: true, cancelable: true });
-            button.dispatchEvent(ev);
-        });
+        dispatchKey('keydown');
+        setTimeout(() => dispatchKey('keyup'), 30);
 
+        // 4. Fallback: Swipe simulation
+        setTimeout(() => {
+            const rect = target.getBoundingClientRect();
+            const touchStart = new MouseEvent('mousedown', {
+                bubbles: true, cancelable: true,
+                clientX: rect.right - 50, clientY: rect.top + rect.height / 2
+            });
+            const touchEnd = new MouseEvent('mouseup', {
+                bubbles: true, cancelable: true,
+                clientX: rect.left + 50, clientY: rect.top + rect.height / 2
+            });
+            target.dispatchEvent(touchStart);
+            setTimeout(() => target.dispatchEvent(touchEnd), 150);
+        }, 80);
+
+        console.log('✅ Next dispatched to video:', target);
         return true;
     }
-
-    /* =========================
-       Button actions
-    ========================== */
-    progressBtn.onclick = () => {
-        if (!clickTikTokArrow()) showToast('❌ Could not find next-story button');
-        else showToast('Advanced to next story');
-    };
-
-    nextBtn.onclick = () => {
-        const url = location.href;
-
-        if (!collectedUrls.includes(url)) {
-            collectedUrls.push(url);
-            copyToClipboard();
-            showToast(`Copied and advanced:\n${url}`);
-        } else {
-            showToast(`Already collected, advanced:\n${url}`);
-        }
-
-        if (!clickTikTokArrow()) showToast('❌ Could not find next-story button');
-    };
-
-    copyBtn.onclick = () => {
-        const url = location.href;
-        if (!collectedUrls.includes(url)) {
-            collectedUrls.push(url);
-            copyToClipboard();
-            showToast(`Copied:\n${url}`);
-        } else {
-            showToast(`Already collected:\n${url}`);
-        }
-    };
-
-    delBtn.onclick = () => {
-        collectedUrls = [];
-        copyToClipboard();
-        showToast('Collected URLs cleared');
-    };
 
     /* =========================
        Overlay visibility
     ========================== */
     let currentUrl = location.href;
 
-    setInterval(() => {
-        if (location.href !== currentUrl) currentUrl = location.href;
+    function updateVisibility() {
+        ensureOverlay();
 
-        const svg =
-            document.querySelector('#stories-player button svg.flip-rtl') ||
-            document.querySelector('#stories-player button svg:last-of-type');
+        if (location.href !== currentUrl) {
+            currentUrl = location.href;
+        }
 
-        overlay.style.display = svg ? 'flex' : 'none';
-    }, 300);
+        const isStory = !!document.querySelector('#stories-player, [data-e2e="stories-player"], video');
+        const isStoryUrl = location.pathname.includes('/stories/');
+
+        if (overlay) {
+            overlay.style.display = (isStory || isStoryUrl) ? 'flex' : 'none';
+        }
+    }
+
+    setInterval(updateVisibility, 500);
+
+    // Initial call
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateVisibility);
+    } else {
+        updateVisibility();
+    }
 
 })();
