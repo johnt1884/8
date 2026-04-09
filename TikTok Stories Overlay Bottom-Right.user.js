@@ -106,7 +106,7 @@
         progressBtn.style.cssText = BASE_BTN_STYLE + 'background: black; color: white; border: 2px solid white;';
         progressBtn.onclick = (e) => {
             e.stopPropagation();
-            if (!clickTikTokArrow()) showToast('❌ Could not find next-story button');
+            if (!simulateArrowRight()) showToast('❌ Navigation failed');
             else showToast('Advanced to next story');
         };
         container.appendChild(progressBtn);
@@ -125,7 +125,7 @@
             } else {
                 showToast(`Already collected, advanced:\n${url}`);
             }
-            if (!clickTikTokArrow()) showToast('❌ Could not find next-story button');
+            if (!simulateArrowRight()) showToast('❌ Navigation failed');
         };
         container.appendChild(nextBtn);
 
@@ -161,98 +161,62 @@
 
 
     /* =========================
-       Reliable TikTok arrow click
+       Reliable TikTok arrow click via Keyboard Simulation
     ========================== */
-    let lastClickTime = 0;
-    function clickTikTokArrow() {
+    let lastKeyTime = 0;
+    function simulateArrowRight() {
         const now = Date.now();
-        if (now - lastClickTime < 500) return true; // Debounce
-        lastClickTime = now;
+        if (now - lastKeyTime < 500) return true; // Debounce
+        lastKeyTime = now;
 
-        // 1. Multi-stage button discovery
-        const findButton = () => {
-            // A. Specific TikTok TUXButton patterns (user provided)
-            let b = document.querySelector('button.action-item svg.flip-rtl')?.closest('button') ||
-                    document.querySelector('button[class*="TUXButton"] svg.flip-rtl')?.closest('button');
-            if (b) return b;
+        const sendKey = (type) => {
+            try {
+                // Create the event with all standard properties
+                const ev = new KeyboardEvent(type, {
+                    key: 'ArrowRight',
+                    code: 'ArrowRight',
+                    keyCode: 39,
+                    which: 39,
+                    charCode: 0,
+                    location: 0,
+                    repeat: false,
+                    isComposing: false,
+                    ctrlKey: false,
+                    altKey: false,
+                    shiftKey: false,
+                    metaKey: false,
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
 
-            // B. Data-e2e and Test attributes (most stable)
-            b = document.querySelector('[data-e2e="arrow-right"], [data-e2e="story-next"], [data-testid="story-next-button"]');
-            if (b) return b;
+                // TikTok/React-specific patches to avoid "toLocaleLowerCase" errors
+                // We define these on the event object itself as well
+                Object.defineProperties(ev, {
+                    keyCode: { value: 39, writable: false },
+                    which: { value: 39, writable: false },
+                    charCode: { value: 0, writable: false }
+                });
 
-            // C. ARIA labels (Check all buttons globally first)
-            b = document.querySelector('button[aria-label*="Next"], button[aria-label*="next"], button[aria-label*="arrow-right"]');
-            if (b) return b;
+                // Dispatch to multiple targets to ensure capture
+                window.dispatchEvent(ev);
+                document.dispatchEvent(ev);
 
-            // D. Search within stories player
-            const player = document.querySelector('#stories-player, [data-e2e="stories-player"], [class*="DivStoriesContentContainer"], [class*="DivStoriesViewerContainer"]');
-            if (player) {
-                // Try to find by SVG path
-                const svg = player.querySelector('svg.flip-rtl') ||
-                            player.querySelector('svg path[d*="28.74 24"]')?.closest('svg');
-                if (svg) return svg.closest('button');
+                // Target the player or focusable elements if possible
+                const target = document.querySelector('#stories-player, [data-e2e="stories-player"], body');
+                if (target) target.dispatchEvent(ev);
 
-                // E. Geometric fallback: find buttons on the right half of the player
-                const rect = player.getBoundingClientRect();
-                const buttons = Array.from(player.querySelectorAll('button'));
-                for (const btn of buttons) {
-                    const bRect = btn.getBoundingClientRect();
-                    if (bRect.left > rect.left + rect.width * 0.7) {
-                        return btn;
-                    }
-                }
+                return true;
+            } catch (err) {
+                console.error('Key simulation failed:', err);
+                return false;
             }
-            return null;
         };
 
-        const btn = findButton();
-        if (!btn) return false;
+        const downOk = sendKey('keydown');
+        const upOk = sendKey('keyup');
 
-        // 3. Staggered "Human" click sequence using Pointer and Mouse events
-        const rect = btn.getBoundingClientRect();
-        const clientX = rect.left + rect.width / 2;
-        const clientY = rect.top + rect.height / 2;
-
-        const common = {
-            bubbles: true,
-            cancelable: true,
-            view: window,
-            clientX,
-            clientY,
-            screenX: clientX,
-            screenY: clientY,
-            buttons: 1,
-            button: 0,
-            which: 1,
-            detail: 1,
-            pointerId: 1,
-            pointerType: 'mouse',
-            isPrimary: true
-        };
-
-        const dispatch = (type, Cls) => {
-            try {
-                btn.dispatchEvent(new Cls(type, common));
-            } catch (e) {}
-        };
-
-        dispatch('pointerdown', PointerEvent);
-        dispatch('mousedown', MouseEvent);
-
-        setTimeout(() => {
-            dispatch('pointerup', PointerEvent);
-            dispatch('mouseup', MouseEvent);
-            dispatch('click', MouseEvent);
-
-            // Final fallback: native .click()
-            try {
-                btn.click();
-            } catch (e) {}
-
-            btn.focus();
-        }, 20);
-
-        return true;
+        return downOk || upOk;
     }
 
 
