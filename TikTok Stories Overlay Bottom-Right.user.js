@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TikTok Stories Overlay Bottom-Right
 // @namespace    https://example.com/tiktok-overlay-bottom-right
-// @version      2.7
+// @version      2.8
 // @description  Bottom-right overlay with reliable next-story navigation (video-focused)
 // @match        *://*.tiktok.com/*
 // @run-at       document-start
@@ -10,7 +10,7 @@
 
 (function () {
     'use strict';
-    let collectedUrls = [];
+    const CLIPBOARD_KEY = 'tmk_internal_clipboard';
     let overlay = null;
 
     /* =========================
@@ -31,10 +31,41 @@
     `;
 
     /* =========================
-       Clipboard helper
+       Clipboard helper (tt.js compatible)
     ========================== */
-    function copyToClipboard() {
-        navigator.clipboard.writeText(collectedUrls.join('\n')).catch(() => {});
+    function readClipboard() {
+        try {
+            const raw = localStorage.getItem(CLIPBOARD_KEY);
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed) ? parsed : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function appendToClipboard(items) {
+        const currentItems = readClipboard();
+        const newSet = new Set([...currentItems, ...items]);
+        const merged = Array.from(newSet);
+        try {
+            localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(merged));
+            return merged;
+        } catch (e) {
+            console.error("Failed to save to clipboard:", e);
+            return currentItems;
+        }
+    }
+
+    function clearClipboard() {
+        try {
+            localStorage.removeItem(CLIPBOARD_KEY);
+        } catch (e) {
+            console.error("Failed to clear clipboard:", e);
+        }
+    }
+
+    function syncToSystemClipboard(items) {
+        navigator.clipboard.writeText(items.join('\n')).catch(() => {});
     }
 
     /* =========================
@@ -118,13 +149,9 @@
         nextBtn.onclick = (e) => {
             e.stopPropagation();
             const url = location.href;
-            if (!collectedUrls.includes(url)) {
-                collectedUrls.push(url);
-                copyToClipboard();
-                showToast(`✅ Copied & advanced:\n${url}`);
-            } else {
-                showToast(`✅ Already collected, advanced:\n${url}`);
-            }
+            const updated = appendToClipboard([url]);
+            syncToSystemClipboard(updated);
+            showToast(`✅ Copied & advanced (Total: ${updated.length}):\n${url}`);
             if (!simulateNextStory()) showToast('❌ No active video found');
         };
         container.appendChild(nextBtn);
@@ -136,13 +163,9 @@
         copyBtn.onclick = (e) => {
             e.stopPropagation();
             const url = location.href;
-            if (!collectedUrls.includes(url)) {
-                collectedUrls.push(url);
-                copyToClipboard();
-                showToast(`✅ Copied:\n${url}`);
-            } else {
-                showToast(`ℹ️ Already collected:\n${url}`);
-            }
+            const updated = appendToClipboard([url]);
+            syncToSystemClipboard(updated);
+            showToast(`✅ Copied (Total: ${updated.length}):\n${url}`);
         };
         container.appendChild(copyBtn);
 
@@ -152,8 +175,9 @@
         delBtn.style.cssText = BASE_BTN_STYLE + 'background: red; color: white; border: none;';
         delBtn.onclick = (e) => {
             e.stopPropagation();
-            collectedUrls = [];
-            copyToClipboard();
+            if (!confirm('Are you sure you want to clear memory?')) return;
+            clearClipboard();
+            syncToSystemClipboard([]);
             showToast('🗑️ Collected URLs cleared');
         };
         container.appendChild(delBtn);
@@ -243,11 +267,12 @@
             currentUrl = location.href;
         }
 
-        const isStory = !!document.querySelector('#stories-player, [data-e2e="stories-player"], video');
-        const isStoryUrl = location.pathname.includes('/stories/');
+        // Check for the specific "exit" button provided by the user
+        const exitBtn = document.querySelector('button[aria-label="exit"].TUXButton');
+        const isStory = !!exitBtn;
 
         if (overlay) {
-            overlay.style.display = (isStory || isStoryUrl) ? 'flex' : 'none';
+            overlay.style.display = isStory ? 'flex' : 'none';
         }
     }
 
