@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TikTok Stories Overlay Bottom-Right
 // @namespace    https://example.com/tiktok-overlay-bottom-right
-// @version      2.8
-// @description  Bottom-right overlay with reliable next-story navigation (video-focused)
+// @version      2.9
+// @description  Bottom-right overlay with reliable next-story navigation (video & photo support)
 // @match        *://*.tiktok.com/*
 // @run-at       document-start
 // @grant        none
@@ -137,7 +137,7 @@
         progressBtn.style.cssText = BASE_BTN_STYLE + 'background: black; color: white; border: 2px solid white;';
         progressBtn.onclick = (e) => {
             e.stopPropagation();
-            if (!simulateNextStory()) showToast('❌ No active video found');
+            if (!simulateNextStory()) showToast('❌ No active story found');
             else showToast('✅ Advanced to next story');
         };
         container.appendChild(progressBtn);
@@ -152,7 +152,7 @@
             const updated = appendToClipboard([url]);
             syncToSystemClipboard(updated);
             showToast(`✅ Copied & advanced (Total: ${updated.length}):\n${url}`);
-            if (!simulateNextStory()) showToast('❌ No active video found');
+            if (!simulateNextStory()) showToast('❌ No active story found');
         };
         container.appendChild(nextBtn);
 
@@ -184,7 +184,7 @@
     }
 
     /* =========================
-       VIDEO-FOCUSED Story Progression (v2.7)
+       STORY Progression (v2.9 - Photo Support)
     ========================== */
     let lastKeyTime = 0;
     function simulateNextStory() {
@@ -192,33 +192,47 @@
         if (now - lastKeyTime < 500) return true; // Debounce
         lastKeyTime = now;
 
-        // 1. Find STORY VIDEO specifically (most reliable target)
-        const videoSelectors = [
-            'video',  // Primary
+        // 1. Find STORY media specifically (video or photo)
+        const mediaSelectors = [
+            'video',
             '[class*="StoriesPlayerVideo"] video',
             '[class*="DivStoriesContent"] video',
-            '#stories-player video',
             '[data-e2e="stories-player"] video',
-            '.stories-player video',
-            '[class*="StoriesViewer"] video'
+            '[class*="StoriesViewer"] video',
+            'img[class*="ImgStory"]',
+            'img[class*="Stories"]',
+            '[class*="StoriesPlayer"] img',
+            '[class*="DivStoriesContent"] img',
+            '[data-e2e="stories-player"] img',
+            '[class*="StoriesViewer"] img',
+            '[data-e2e="story-image"]'
         ];
 
         let target = null;
-        for (let sel of videoSelectors) {
+        for (let sel of mediaSelectors) {
             target = document.querySelector(sel);
-            if (target && target.tagName === 'VIDEO') break;
+            if (target) break;
+        }
+
+        // Fallback to active story container if media not directly found
+        if (!target) {
+            target = document.querySelector('[data-e2e="stories-player"]') ||
+                     document.querySelector('[class*="DivStoriesContent"]') ||
+                     document.querySelector('button[aria-label="exit"].TUXButton')?.parentElement;
         }
 
         if (!target) {
-            console.log('No story video found. All videos:', document.querySelectorAll('video').length);
+            console.log('No story media or container found.');
             return false;
         }
 
-        // 2. Focus ONLY the video (prevents modal exit)
-        target.focus({preventScroll: true});
-        target.style.outline = 'none';
+        // 2. Focus target (prevents modal exit)
+        if (typeof target.focus === 'function') {
+            target.focus({preventScroll: true});
+        }
+        if (target.style) target.style.outline = 'none';
 
-        // 3. ArrowRight keys (video handles progression)
+        // 3. ArrowRight keys (handles progression)
         const dispatchKey = (type) => {
             const ev = new KeyboardEvent(type, {
                 key: 'ArrowRight', code: 'ArrowRight',
