@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         TikTok Stories Overlay Bottom-Right
 // @namespace    https://example.com/tiktok-overlay-bottom-right
-// @version      2.8
-// @description  Bottom-right overlay with reliable next-story navigation (video-focused)
+// @version      3.0
+// @description  Bottom-right overlay with reliable next-story navigation (v3: Multi-mode support)
 // @match        *://*.tiktok.com/*
 // @run-at       document-start
 // @grant        none
@@ -137,7 +137,7 @@
         progressBtn.style.cssText = BASE_BTN_STYLE + 'background: black; color: white; border: 2px solid white;';
         progressBtn.onclick = (e) => {
             e.stopPropagation();
-            if (!simulateNextStory()) showToast('❌ No active video found');
+            if (!simulateNextStory()) showToast('❌ No active story found');
             else showToast('✅ Advanced to next story');
         };
         container.appendChild(progressBtn);
@@ -152,7 +152,7 @@
             const updated = appendToClipboard([url]);
             syncToSystemClipboard(updated);
             showToast(`✅ Copied & advanced (Total: ${updated.length}):\n${url}`);
-            if (!simulateNextStory()) showToast('❌ No active video found');
+            if (!simulateNextStory()) showToast('❌ No active story found');
         };
         container.appendChild(nextBtn);
 
@@ -184,7 +184,7 @@
     }
 
     /* =========================
-       VIDEO-FOCUSED Story Progression (v2.7)
+       STORY Progression (v3.0 - Robust Multi-mode)
     ========================== */
     let lastKeyTime = 0;
     function simulateNextStory() {
@@ -192,33 +192,70 @@
         if (now - lastKeyTime < 500) return true; // Debounce
         lastKeyTime = now;
 
-        // 1. Find STORY VIDEO specifically (most reliable target)
-        const videoSelectors = [
-            'video',  // Primary
+        // 1. Try to find the ACTUAL "Next" arrow button first (most reliable)
+        // Usually these are buttons with specific aria-labels or nested within directional containers
+        const nextButtonSelectors = [
+            'button[aria-label="Next"]',
+            'button[aria-label*="next"]',
+            '[class*="ButtonArrowRight"]',
+            '[class*="arrow-right"]',
+            '[data-e2e="arrow-right"]',
+            'button:has(svg[class*="IconArrowRight"])'
+        ];
+
+        for (let sel of nextButtonSelectors) {
+            try {
+                const btn = document.querySelector(sel);
+                if (btn && btn.offsetWidth > 0 && btn.offsetHeight > 0) {
+                    btn.click();
+                    console.log('✅ Next clicked via button selector:', sel);
+                    return true;
+                }
+            } catch(e) {}
+        }
+
+        // 2. Find STORY media specifically (video or photo)
+        const mediaSelectors = [
+            'video',
             '[class*="StoriesPlayerVideo"] video',
             '[class*="DivStoriesContent"] video',
-            '#stories-player video',
             '[data-e2e="stories-player"] video',
-            '.stories-player video',
-            '[class*="StoriesViewer"] video'
+            '[class*="StoriesViewer"] video',
+            'img[class*="ImgStory"]',
+            'img[class*="Stories"]',
+            '[class*="StoriesPlayer"] img',
+            '[class*="DivStoriesContent"] img',
+            '[data-e2e="stories-player"] img',
+            '[class*="StoriesViewer"] img',
+            '[data-e2e="story-image"]',
+            'div[style*="background-image"][class*="Story"]'
         ];
 
         let target = null;
-        for (let sel of videoSelectors) {
+        for (let sel of mediaSelectors) {
             target = document.querySelector(sel);
-            if (target && target.tagName === 'VIDEO') break;
+            if (target) break;
+        }
+
+        // Fallback to active story container if media not directly found
+        if (!target) {
+            target = document.querySelector('[data-e2e="stories-player"]') ||
+                     document.querySelector('[class*="DivStoriesContent"]') ||
+                     document.querySelector('button[aria-label="exit"].TUXButton')?.parentElement;
         }
 
         if (!target) {
-            console.log('No story video found. All videos:', document.querySelectorAll('video').length);
-            return false;
+            // Last resort: Dispatch to window
+            target = window;
         }
 
-        // 2. Focus ONLY the video (prevents modal exit)
-        target.focus({preventScroll: true});
-        target.style.outline = 'none';
+        // 3. Focus target if possible
+        if (target && typeof target.focus === 'function') {
+            target.focus({preventScroll: true});
+        }
+        if (target && target.style) target.style.outline = 'none';
 
-        // 3. ArrowRight keys (video handles progression)
+        // 4. ArrowRight keys (handles progression)
         const dispatchKey = (type) => {
             const ev = new KeyboardEvent(type, {
                 key: 'ArrowRight', code: 'ArrowRight',
@@ -226,32 +263,38 @@
                 bubbles: true, cancelable: true,
                 ctrlKey: false, shiftKey: false
             });
-            target.dispatchEvent(ev);
-            // Only bubble if video didn't handle it
-            if (ev.defaultPrevented === false) {
+            if (target && target.dispatchEvent) {
+                target.dispatchEvent(ev);
+            }
+            // Always dispatch to document/window as backup
+            if (type === 'keydown') {
                 document.dispatchEvent(ev);
+                window.dispatchEvent(ev);
             }
         };
 
         dispatchKey('keydown');
         setTimeout(() => dispatchKey('keyup'), 30);
 
-        // 4. Fallback: Swipe simulation
-        setTimeout(() => {
-            const rect = target.getBoundingClientRect();
-            const touchStart = new MouseEvent('mousedown', {
-                bubbles: true, cancelable: true,
-                clientX: rect.right - 50, clientY: rect.top + rect.height / 2
-            });
-            const touchEnd = new MouseEvent('mouseup', {
-                bubbles: true, cancelable: true,
-                clientX: rect.left + 50, clientY: rect.top + rect.height / 2
-            });
-            target.dispatchEvent(touchStart);
-            setTimeout(() => target.dispatchEvent(touchEnd), 150);
-        }, 80);
+        // 5. Fallback: Swipe simulation (only if we have a DOM element)
+        if (target && target !== window) {
+            setTimeout(() => {
+                const rect = target.getBoundingClientRect();
+                if (rect.width === 0) return;
+                const touchStart = new MouseEvent('mousedown', {
+                    bubbles: true, cancelable: true,
+                    clientX: rect.right - 50, clientY: rect.top + rect.height / 2
+                });
+                const touchEnd = new MouseEvent('mouseup', {
+                    bubbles: true, cancelable: true,
+                    clientX: rect.left + 50, clientY: rect.top + rect.height / 2
+                });
+                target.dispatchEvent(touchStart);
+                setTimeout(() => target.dispatchEvent(touchEnd), 150);
+            }, 80);
+        }
 
-        console.log('✅ Next dispatched to video:', target);
+        console.log('✅ Next dispatched to target:', target);
         return true;
     }
 
