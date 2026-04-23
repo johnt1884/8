@@ -1,16 +1,7 @@
 // ==UserScript==
 // @name TikTok Video Counter + Multi-Select + Test New Videos (more robust)
 // @namespace http://tampermonkey.net/
-// @version 1.13
-// @description Improved Test New accuracy: ID-based comparison vs a larger saved ID-set (up to 128), waits for DOM stability, timestamps snapshot. SPA-friendly. Multi-select + internal clipboard unchanged. Added copy selected (clear/appended) and safer alert/confirm handling. Removed popups, added bottom-right notifications. Added top-right row-select checkbox per video (position-based row detection). Removed '+' buttons. Fixed checkbox size to static scale(3).
-// @author You
-// @match https://www.tiktok.com/@*
-// @grant none
-// ==/UserScript==
-// ==UserScript==
-// @name TikTok Video Counter + Multi-Select + Test New Videos (more robust)
-// @namespace http://tampermonkey.net/
-// @version 1.13
+// @version 1.14
 // @description Improved Test New accuracy: ID-based comparison vs a larger saved ID-set (up to 128), waits for DOM stability, timestamps snapshot. SPA-friendly. Multi-select + internal clipboard unchanged. Added copy selected (clear/appended) and safer alert/confirm handling. Removed popups, added bottom-right notifications. Added top-right row-select checkbox per video (position-based row detection). Removed '+' buttons. Fixed checkbox size to static scale(3).
 // @author You
 // @match https://www.tiktok.com/@*
@@ -18,6 +9,7 @@
 // ==/UserScript==
 (function() {
     'use strict';
+    const SHOW_NEW_STATS = 1; // 0 to hide, 1 to show
     const selectedLinks = new Set();
     const CLIPBOARD_KEY = 'tmk_internal_clipboard';
     let internalClipboard = []; // Will be loaded by readClipboard
@@ -320,13 +312,15 @@
         const prev = getSavedVideoCount(username);
         const newVideos = prev !== null ? count - prev : 0;
         let html = `<a href="#" style="color:#0ff;" id="copyAllPosts">Total Videos: ${count}</a>`;
-        if (newVideos !== 0) html += `<br><a href="#" style="color:#0f0;" id="copyNewPosts">New Videos: ${newVideos > 0 ? '+' : ''}${newVideos}</a>`;
-        if (testNewCount === 'n/a') {
-            html += `<br><span style="color:#aaa;">Test New Videos: n/a</span>`;
-        } else if (testNewCount > 0) {
-            html += `<br><a href="#" style="color:#ffa500;" id="copyTestNew">Test New Videos: +${testNewCount}</a>`;
-        } else {
-            html += `<br><span style="color:#aaa;">Test New Videos: 0</span>`;
+        if (SHOW_NEW_STATS) {
+            if (newVideos !== 0) html += `<br><a href="#" style="color:#0f0;" id="copyNewPosts">New Videos: ${newVideos > 0 ? '+' : ''}${newVideos}</a>`;
+            if (testNewCount === 'n/a') {
+                html += `<br><span style="color:#aaa;">Test New Videos: n/a</span>`;
+            } else if (testNewCount > 0) {
+                html += `<br><a href="#" style="color:#ffa500;" id="copyTestNew">Test New Videos: +${testNewCount}</a>`;
+            } else {
+                html += `<br><span style="color:#aaa;">Test New Videos: 0</span>`;
+            }
         }
         // ---- show the two copy-selected options ----
         if (selectedLinks.size > 0) {
