@@ -7,6 +7,7 @@
      <style>
         :root {
             --bg-color: #3d0021;
+            --top-bar-color: #1c1c1c;
             --toolbar-color: #1c1c1c;
             --root-sc-color: #ffe11f;
             --subfolder-sc-color: #00ff1e;
@@ -46,7 +47,7 @@
             justify-content: space-between;
             height: 36px;
             box-sizing: border-box;
-            background-color: var(--toolbar-color);
+            background-color: var(--top-bar-color);
         }
         .top-bar-left {
             display: flex;
@@ -288,7 +289,7 @@
             padding: 0 8px 0 8px;
             padding-right: 32px;
             border: 1px solid #444444;
-            background-color: var(--toolbar-color);
+            background-color: var(--top-bar-color);
             color: #ffffff;
             border-radius: 0;
             font-size: 14px;
@@ -310,7 +311,7 @@
             min-height: 28px;
             padding: 2px 10px;
             border: 1px solid #444444;
-            background-color: var(--toolbar-color);
+            background-color: var(--top-bar-color);
             color: #ffffff;
             border-radius: 0;
             font-size: 14px;
@@ -400,7 +401,7 @@
         .dropdown-content {
             display: none;
             position: absolute;
-            background-color: var(--toolbar-color);
+            background-color: var(--top-bar-color);
             min-width: 450px;
             box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
             z-index: 3000;
@@ -424,6 +425,10 @@
         }
         .dropdown-content button:nth-child(even) {
             background-color: rgba(255,255,255,0.05);
+        }
+        #top-categories-dropdown select option {
+            background-color: white;
+            color: black;
         }
         .dropdown-content button:hover {
             background-color: #166fe5;
@@ -487,7 +492,7 @@
         .multiplier-input {
             width: 50px;
             height: 30px;
-            background-color: var(--toolbar-color);
+            background-color: var(--top-bar-color);
             color: white;
             border: 1px solid #444444;
             padding: 0 4px;
@@ -573,7 +578,11 @@
                                 <input type="color" id="bg-color-picker" value="#3d0021">
                             </div>
                             <div class="options-row">
-                                <label for="toolbar-color-picker">Toolbars</label>
+                                <label for="top-bar-color-picker">Top Toolbar</label>
+                                <input type="color" id="top-bar-color-picker" value="#1c1c1c">
+                            </div>
+                            <div class="options-row">
+                                <label for="toolbar-color-picker">Action Toolbars</label>
                                 <input type="color" id="toolbar-color-picker" value="#1c1c1c">
                             </div>
                             <div class="options-row">
@@ -613,6 +622,7 @@
                     </div>
                     <select id="size-selector">
                         <option value="auto">Auto Fit</option>
+                        <option value="0.1">10%</option>
                         <option value="0.2">20%</option>
                         <option value="0.3">30%</option>
                         <option value="0.4">40%</option>
@@ -624,7 +634,7 @@
                         <option value="1" selected>100%</option>
                         <option value="custom">Custom</option>
                     </select>
-                    <input type="number" id="custom-size-input" style="display:none; width: 60px; height: 28px; background-color: var(--toolbar-color); color: white; border: 1px solid #444444; margin-left: 5px; text-align: center;" placeholder="%" min="1" max="500">
+                    <input type="number" id="custom-size-input" style="display:none; width: 60px; height: 28px; background-color: var(--top-bar-color); color: white; border: 1px solid #444444; margin-left: 5px; text-align: center;" placeholder="%" min="1" max="500">
                     <select id="sort-selector">
                         <option value="" disabled selected hidden>Sort</option>
                         <option value="name-asc">Name (A-Z)</option>
@@ -853,6 +863,7 @@
         let editorMediaFrameCount = 0;
         let editorScrubbingMouseDown = false;
         let editorCurrentAppliedRotation = 0;
+        let editorCurrentAppliedFlip = false;
 
         let videoCategories = new Map(); // Key: projectPath + '|' + videoName, Value: Set of category names
         let initialVideoCategories = new Map(); // Key: projectPath + '|' + videoName, Value: Set of category names
@@ -895,9 +906,14 @@
             const m = Math.floor(s / 60); const sec = Math.floor(s % 60);
             return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
         }
-        function editorApplyRotationToViewer(d) {
+        function editorApplyRotationToViewer(d, flipped = editorCurrentAppliedFlip) {
             editorCurrentAppliedRotation = (d + 360) % 360;
-            editorMainVideo.style.transform = `rotate(${editorCurrentAppliedRotation}deg) translate3d(0,0,0)`;
+            editorCurrentAppliedFlip = flipped;
+            let transform = `rotate(${editorCurrentAppliedRotation}deg) translate3d(0,0,0)`;
+            if (flipped) {
+                transform += ' scaleX(-1)';
+            }
+            editorMainVideo.style.transform = transform;
         }
         function editorGetRotationAt(time) {
             if (!editorMarkers || !editorMarkers.length) return 0;
@@ -1128,73 +1144,86 @@
             const projectPath = canvas.path;
             const projCats = projectCategories.get(projectPath) || new Set();
 
-            const createSection = (title, cats, isSaved = false) => {
-                const header = document.createElement('div');
-                header.style.padding = '8px 16px';
-                header.style.fontWeight = 'bold';
-                header.style.backgroundColor = 'rgba(255,255,255,0.1)';
-                header.style.color = 'white';
-                header.textContent = title;
-                topCategoriesDropdown.appendChild(header);
+            const allAvailableCats = new Set([...projCats, ...globalSavedCategories]);
+            if (allAvailableCats.size === 0) {
+                topCategoriesDropdown.innerHTML = '<div style="padding: 16px; color: #888;">No categories available.</div>';
+                return;
+            }
 
-                if (cats.size === 0) {
-                    const empty = document.createElement('div');
-                    empty.style.padding = '8px 16px';
-                    empty.style.color = '#888';
-                    empty.textContent = 'None';
-                    topCategoriesDropdown.appendChild(empty);
+            const container = document.createElement('div');
+            container.style.padding = '12px';
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '10px';
+
+            const label = document.createElement('div');
+            label.textContent = 'Select Category to apply to ALL videos in this project:';
+            label.style.fontSize = '12px';
+            label.style.color = '#ccc';
+            container.appendChild(label);
+
+            const select = document.createElement('select');
+            select.style.width = '100%';
+            select.style.height = '36px';
+            select.style.marginBottom = '5px';
+            select.style.color = 'black';
+            select.style.backgroundColor = 'white';
+
+            const defaultOpt = document.createElement('option');
+            defaultOpt.value = '';
+            defaultOpt.textContent = '-- Select Category --';
+            select.appendChild(defaultOpt);
+
+            Array.from(allAvailableCats).sort().forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = cat;
+                select.appendChild(opt);
+            });
+            container.appendChild(select);
+
+            const btnRow = document.createElement('div');
+            btnRow.style.display = 'flex';
+            btnRow.style.gap = '10px';
+
+            const addAllBtn = document.createElement('button');
+            addAllBtn.className = 'bar-button';
+            addAllBtn.style.flex = '1';
+            addAllBtn.style.height = '36px';
+            addAllBtn.style.backgroundColor = '#43a047';
+            addAllBtn.textContent = 'Add All';
+            addAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (select.value) {
+                    bulkToggleCategory(select.value, true);
+                    topCategoriesDropdown.style.display = 'none';
                 } else {
-                    Array.from(cats).sort().forEach(cat => {
-                        const row = document.createElement('div');
-                        row.className = 'options-row';
-                        row.style.justifyContent = 'space-between';
-                        
-                        const label = document.createElement('span');
-                        label.textContent = cat;
-                        label.style.fontWeight = '500';
-                        label.style.cursor = 'pointer';
-                        label.onclick = (e) => {
-                            e.stopPropagation();
-                            bulkToggleCategory(cat, true);
-                        };
-                        row.appendChild(label);
-
-                        const actions = document.createElement('div');
-                        actions.style.display = 'flex';
-                        actions.style.gap = '5px';
-
-                        const addBtn = document.createElement('button');
-                        addBtn.className = 'bar-button';
-                        addBtn.textContent = 'Add All';
-                        addBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            bulkToggleCategory(cat, true);
-                        };
-                        actions.appendChild(addBtn);
-
-                        const remBtn = document.createElement('button');
-                        remBtn.className = 'bar-button';
-                        remBtn.style.backgroundColor = '#d32f2f';
-                        remBtn.textContent = 'Remove All';
-                        remBtn.onclick = (e) => {
-                            e.stopPropagation();
-                            bulkToggleCategory(cat, false);
-                        };
-                        actions.appendChild(remBtn);
-
-                        row.appendChild(actions);
-                        topCategoriesDropdown.appendChild(row);
-                    });
+                    alert('Please select a category first.');
                 }
             };
 
-            createSection('Page Categories', projCats);
+            const remAllBtn = document.createElement('button');
+            remAllBtn.className = 'bar-button';
+            remAllBtn.style.flex = '1';
+            remAllBtn.style.height = '36px';
+            remAllBtn.style.backgroundColor = '#d32f2f';
+            remAllBtn.textContent = 'Remove All';
+            remAllBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (select.value) {
+                    bulkToggleCategory(select.value, false);
+                    topCategoriesDropdown.style.display = 'none';
+                } else {
+                    alert('Please select a category first.');
+                }
+            };
 
-            const savedCats = new Set();
-            globalSavedCategories.forEach(c => {
-                if (!projCats.has(c)) savedCats.add(c);
-            });
-            createSection('Saved Categories', savedCats, true);
+            btnRow.appendChild(addAllBtn);
+            btnRow.appendChild(remAllBtn);
+            container.appendChild(btnRow);
+
+            topCategoriesDropdown.appendChild(container);
+            topCategoriesDropdown.style.minWidth = '300px';
         }
 
         function openCategoriesModal(videoName, projectPath, subfolder, projectName) {
@@ -1212,6 +1241,8 @@
             const selection = shortcutSelections.get(key) || {};
             editorCurrentCuts = selection.cuts ? JSON.parse(JSON.stringify(selection.cuts)) : [];
             editorMarkers = selection.markers ? JSON.parse(JSON.stringify(selection.markers)) : [];
+            editorCurrentAppliedFlip = !!selection.flipped;
+
             if (editorMarkers.length === 0 && selection.rotation && selection.rotation !== "0") {
                 editorMarkers = [{ frame: 0, rotation: parseInt(selection.rotation) }];
             }
@@ -1350,12 +1381,11 @@
                 const initialFlipped = initial ? !!initial.flipped : false;
 
                 let selection = shortcutSelections.get(key);
-                const currentFlipped = selection ? !!selection.flipped : initialFlipped;
 
                 const hasCuts = editorCurrentCuts.length > 0;
                 let markersChanged = editorMarkers.length > 0;
                 let finalRotation = initialRot;
-                let finalFlipped = currentFlipped;
+                let finalFlipped = editorCurrentAppliedFlip;
 
                 if (markersChanged) {
                     const lastMarker = editorMarkers[editorMarkers.length - 1];
@@ -1451,6 +1481,7 @@
 
             const colorPickers = {
                 'bg-color': document.getElementById('bg-color-picker'),
+                'top-bar-color': document.getElementById('top-bar-color-picker'),
                 'toolbar-color': document.getElementById('toolbar-color-picker'),
                 'root-sc-color': document.getElementById('root-sc-color-picker'),
                 'subfolder-sc-color': document.getElementById('subfolder-sc-color-picker'),
@@ -1491,6 +1522,7 @@
                 revertDefaultsBtn.addEventListener('click', () => {
                     const defaults = {
                         'bg-color': '#3d0021',
+                        'top-bar-color': '#1c1c1c',
                         'toolbar-color': '#1c1c1c',
                         'root-sc-color': '#ffe11f',
                         'subfolder-sc-color': '#00ff1e',
@@ -2294,7 +2326,8 @@
             const hasDeletions = Array.from(initialShortcutSelections.keys()).some(key => {
                 const initial = initialShortcutSelections.get(key);
                 const current = shortcutSelections.get(key);
-                return initial.type && (!current || !current.type);
+                // If it was initially something, and now it's either gone or something else
+                return initial.type && (!current || current.type !== initial.type);
             });
 
             const hasModifiedType = Array.from(shortcutSelections.entries()).some(([key, sel]) => {
@@ -2769,9 +2802,8 @@
                 const escapedProjectPath = escapePSString(sel.projectPath);
                 const escapedProjectName = escapePSString(sel.projectName);
                 const escapedSubfolder = escapePSString(sel.subfolder);
-                const escapedTargetProjectPath = (sel.targetProject !== undefined) ? escapePSString(sel.targetProject) : null;
 
-                const isMoved = (escapedTargetProjectPath !== null && sel.targetProject !== sel.projectPath);
+                const isMoved = sel.targetProject && sel.targetProject !== sel.projectPath;
 
                 if (needsProcessing) {
                     let editDesc = `${sel.videoName} (`;
@@ -2831,28 +2863,34 @@
                     scriptLines.push(`    # Managing shortcuts for: ${sel.projectPath}\\${sel.videoName} (Selection: ${selectionType})`);
                     scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath(${targetPathConstruction})`);
 
-                    const wantRoot = (selectionType === 'root-sc' || selectionType === 'both-sc');
-                    const wantSub = (selectionType === 'subfolder-sc' || selectionType === 'both-sc');
-
                 // Root location
+                const initial = initialShortcutSelections.get(key);
+                const initiallyInRoot = initial && (initial.type === 'root-sc' || initial.type === 'both-sc');
+                const wantRoot = (selectionType === 'root-sc' || selectionType === 'both-sc');
+
                 if (wantRoot) {
-                    const initial = initialShortcutSelections.get(key);
-                    if (initial && (initial.type === 'root-sc' || initial.type === 'both-sc')) {
+                    if (initiallyInRoot) {
                         summaryActions.shortcuts_verify.push(`${sel.videoName} in Root sc/`);
                     } else {
                         summaryActions.shortcuts_new.push(`${sel.videoName} in Root sc/`);
                     }
+                } else if (initiallyInRoot) {
+                    summaryActions.shortcuts_delete.push(`${sel.videoName} from Root sc/`);
                 }
                 scriptLines.push(`    Manage-Shortcut -folderPath \$rootScFolder -videoName '${escapedVideoName}' -targetPath \$targetPath -shouldExist ${wantRoot ? '$true' : '$false'}`);
 
                 // Subfolder location
+                const initiallyInSub = initial && (initial.type === 'subfolder-sc' || initial.type === 'both-sc');
+                const wantSub = (selectionType === 'subfolder-sc' || selectionType === 'both-sc');
+
                 if (wantSub) {
-                    const initial = initialShortcutSelections.get(key);
-                    if (initial && (initial.type === 'subfolder-sc' || initial.type === 'both-sc')) {
+                    if (initiallyInSub) {
                         summaryActions.shortcuts_verify.push(`${sel.videoName} in ${sel.projectPath}/sc/`);
                     } else {
                         summaryActions.shortcuts_new.push(`${sel.videoName} in ${tpToUse}/sc/`);
                     }
+                } else if (initiallyInSub) {
+                    summaryActions.shortcuts_delete.push(`${sel.videoName} from ${sel.projectPath}/sc/`);
                 }
                     const scProjToUse = isMoved ? sel.targetProject : sel.projectPath;
                     const scNameToUse = isMoved ? sel.targetProject : sel.projectName;
@@ -2900,54 +2938,48 @@
                 });
             }
 
-            // --- Deletions ---
+            // --- Explicit Shortcut Deletions ---
             const deletions = [];
+            const handledInMainLoop = new Set();
+            selectionsToProcess.forEach(sel => {
+                const key = sel.projectPath + '|' + sel.videoName;
+                if (sel.type) handledInMainLoop.add(key);
+            });
+
             initialShortcutSelections.forEach((initial, key) => {
+                if (handledInMainLoop.has(key)) return;
+
                 const current = shortcutSelections.get(key);
+                if (current && current.type) return;
+
                 const parts = key.split('|');
                 const projectPath = parts[0];
                 const videoName = parts[1];
                 const escapedVideoName = escapePSString(videoName);
                 const escapedProjectPath = escapePSString(projectPath);
+                const escapedSubfolder = initial.subfolder ? escapePSString(initial.subfolder) : '';
 
                 const initiallyInSubfolder = initial.type === 'subfolder-sc' || initial.type === 'both-sc';
-                const currentlyInSubfolder = current && (current.type === 'subfolder-sc' || current.type === 'both-sc');
-                if (initiallyInSubfolder && !currentlyInSubfolder) {
+                if (initiallyInSubfolder) {
+                    summaryActions.shortcuts_delete.push(`${videoName} from ${initial.projectPath}/sc/`);
                     const subPathRes = getPSPathRes('\$BaseDir', initial.projectPath, initial.projectName, '');
                     let subPath = `Join-Path -Path (${subPathRes}) -ChildPath 'sc'`;
-                    
                     const fullScPath = `Join-Path -Path (${subPath}) -ChildPath ('${escapedVideoName}' + '.lnk')`;
                     const logPath = (escapedProjectPath ? escapedProjectPath + '\\' : '') + (escapedSubfolder ? escapedSubfolder + '\\' : '') + escapedVideoName;
                     deletions.push(`if (Test-Path -LiteralPath (${fullScPath})) { Remove-Item -LiteralPath (${fullScPath}); Write-Host "Deleted subfolder shortcut: ${logPath}" }`);
                 }
 
                 const initiallyInRoot = initial.type === 'root-sc' || initial.type === 'both-sc';
-                const currentlyInRoot = current && (current.type === 'root-sc' || current.type === 'both-sc');
-                if (initiallyInRoot && !currentlyInRoot) {
+                if (initiallyInRoot) {
+                    summaryActions.shortcuts_delete.push(`${videoName} from Root sc/`);
                     const rootScFolder = `Join-Path -Path \"$BaseDir\" -ChildPath 'sc'`;
                     const fullScPath = `Join-Path -Path (${rootScFolder}) -ChildPath ('${escapedVideoName}' + '.lnk')`;
                     deletions.push(`if (Test-Path -LiteralPath (${fullScPath})) { Remove-Item -LiteralPath (${fullScPath}); Write-Host "Deleted root shortcut: ${escapedVideoName}" }`);
-
                 }
             });
 
             if (deletions.length > 0) {
                 scriptLines.push('# --- Deleting Shortcuts ---');
-                initialShortcutSelections.forEach((initial, key) => {
-                    const current = shortcutSelections.get(key);
-                    const parts = key.split('|');
-                    const videoName = parts[1];
-                    const initiallyInSubfolder = initial.type === 'subfolder-sc' || initial.type === 'both-sc';
-                    const currentlyInSubfolder = current && (current.type === 'subfolder-sc' || current.type === 'both-sc');
-                    if (initiallyInSubfolder && !currentlyInSubfolder) {
-                        summaryActions.shortcuts_delete.push(`${videoName} from ${initial.projectPath}/sc/`);
-                    }
-                    const initiallyInRoot = initial.type === 'root-sc' || initial.type === 'both-sc';
-                    const currentlyInRoot = current && (current.type === 'root-sc' || current.type === 'both-sc');
-                    if (initiallyInRoot && !currentlyInRoot) {
-                        summaryActions.shortcuts_delete.push(`${videoName} from Root sc/`);
-                    }
-                });
                 scriptLines.push(...deletions);
                 scriptLines.push('');
             }
