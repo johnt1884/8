@@ -646,7 +646,7 @@
                     </div>
                 </div>
                 <div class="top-bar-right">
-                    <button id="shortcut-script-btn" class="bar-button">Create Shortcut Script</button>
+                    <button id="shortcut-script-btn" class="bar-button">Generate Action Script</button>
                     <button id="create-playlist-btn" class="bar-button" style="display: none;">Create Playlist</button>
                     <button id="delete-shortcuts-btn" class="bar-button" style="display: none;">Delete Selected Shortcuts</button>
                 </div>
@@ -714,14 +714,14 @@
     <div id="script-modal" class="modal">
         <div class="modal-content">
             <span class="close">&times;</span>
-            <h2 id="script-modal-title">Create Shortcut PowerShell Script</h2>
+            <h2 id="script-modal-title">Generate Action PowerShell Script</h2>
             
             <div id="action-summary-container" style="margin-bottom: 20px;">
                 <h3>Action Summary</h3>
                 <div id="action-summary-content"></div>
             </div>
 
-            <p id="script-modal-desc">This script will create shortcuts for your selections. Right-click and "Run with PowerShell" in your main video directory.</p>
+            <p id="script-modal-desc">This script will perform the actions listed above. Right-click and "Run with PowerShell" in your main video directory.</p>
             <textarea id="batch-script" rows="10" cols="80" readonly></textarea>
             <button id="copy-script-btn">Copy to Clipboard</button>
             <a id="download-script-link" download="create_shortcuts.ps1">
@@ -1345,20 +1345,58 @@
 
             editorCommitBtn.onclick = () => {
                 const key = editorCurrentVideo.projectPath + '|' + editorCurrentVideo.videoName;
+                const initial = initialShortcutSelections.get(key);
+                const initialRot = (initial && initial.rotation) || "0";
+                const initialFlipped = initial ? !!initial.flipped : false;
+
                 let selection = shortcutSelections.get(key);
-                if (!selection) {
-                    selection = {
-                        videoName: editorCurrentVideo.videoName,
-                        projectPath: editorCurrentVideo.projectPath,
-                        subfolder: editorCurrentVideo.subfolder,
-                        projectName: editorCurrentVideo.projectName,
-                        type: '', rotation: "0"
-                    };
-                    shortcutSelections.set(key, selection);
+                const currentFlipped = selection ? !!selection.flipped : initialFlipped;
+
+                const hasCuts = editorCurrentCuts.length > 0;
+                let markersChanged = editorMarkers.length > 0;
+                let finalRotation = initialRot;
+                let finalFlipped = currentFlipped;
+
+                if (markersChanged) {
+                    const lastMarker = editorMarkers[editorMarkers.length - 1];
+                    finalRotation = lastMarker.rotation.toString();
+                    if (editorMarkers.length === 1 && editorMarkers[0].frame === 0) {
+                        if (finalRotation === initialRot) {
+                            markersChanged = false;
+                        }
+                    }
                 }
-                selection.cuts = JSON.parse(JSON.stringify(editorCurrentCuts));
-                selection.markers = JSON.parse(JSON.stringify(editorMarkers));
-                selection.fps = editorEstimatedFPS;
+
+                const isReverted = !hasCuts && !markersChanged && finalRotation === initialRot && finalFlipped === initialFlipped;
+
+                if (isReverted) {
+                    if (selection) {
+                        if (!selection.type && !selection.targetProject) {
+                            shortcutSelections.delete(key);
+                        } else {
+                            selection.cuts = [];
+                            selection.markers = [];
+                            selection.rotation = initialRot;
+                            selection.flipped = initialFlipped;
+                        }
+                    }
+                } else {
+                    if (!selection) {
+                        selection = {
+                            videoName: editorCurrentVideo.videoName,
+                            projectPath: editorCurrentVideo.projectPath,
+                            subfolder: editorCurrentVideo.subfolder,
+                            projectName: editorCurrentVideo.projectName,
+                            type: '', rotation: finalRotation, flipped: finalFlipped
+                        };
+                        shortcutSelections.set(key, selection);
+                    }
+                    selection.cuts = JSON.parse(JSON.stringify(editorCurrentCuts));
+                    selection.markers = JSON.parse(JSON.stringify(editorMarkers));
+                    selection.rotation = finalRotation;
+                    selection.flipped = finalFlipped;
+                    selection.fps = editorEstimatedFPS;
+                }
 
                 // Close editor
                 editorModal.style.display = 'none';
@@ -2235,24 +2273,37 @@
 
         function hasChanges() {
             const selectionsToProcess = Array.from(shortcutSelections.values());
-            const hasEditsGlobal = selectionsToProcess.some(sel => 
-                (sel.cuts && sel.cuts.length > 0) || 
-                (sel.markers && sel.markers.length > 0) ||
-                (sel.rotation && sel.rotation !== "0") ||
-                sel.flipped
-            );
-            const hasSelections = shortcutSelections.size > 0;
-            const hasDeletions = Array.from(initialShortcutSelections.keys()).some(key => !shortcutSelections.has(key));
+
+            const hasEditsGlobal = selectionsToProcess.some(sel => {
+                const key = sel.projectPath + '|' + sel.videoName;
+                const initial = initialShortcutSelections.get(key);
+                const initialRot = (initial && initial.rotation) || "0";
+                const initialFlipped = initial ? !!initial.flipped : false;
+
+                return (sel.cuts && sel.cuts.length > 0) ||
+                       (sel.markers && sel.markers.length > 0) ||
+                       (sel.rotation !== initialRot) ||
+                       (!!sel.flipped !== initialFlipped);
+            });
+
+            const hasNewSelections = Array.from(shortcutSelections.entries()).some(([key, sel]) => {
+                const initial = initialShortcutSelections.get(key);
+                return (!initial && sel.type) || (initial && !initial.type && sel.type);
+            });
+
+            const hasDeletions = Array.from(initialShortcutSelections.keys()).some(key => {
+                const initial = initialShortcutSelections.get(key);
+                const current = shortcutSelections.get(key);
+                return initial.type && (!current || !current.type);
+            });
+
             const hasModifiedType = Array.from(shortcutSelections.entries()).some(([key, sel]) => {
                 const initial = initialShortcutSelections.get(key);
                 return initial && (initial.type !== sel.type);
             });
-            const hasModifiedRotation = Array.from(shortcutSelections.entries()).some(([key, sel]) => {
-                const initial = initialShortcutSelections.get(key);
-                return initial && (initial.rotation !== sel.rotation);
-            });
-            const hasDummyTimestamp = dummyTimestampProjects.size > 0;
+
             const hasMoves = selectionsToProcess.some(sel => sel.targetProject);
+            const hasDummyTimestamp = dummyTimestampProjects.size > 0;
 
             // Check for category changes
             const allCatKeys = new Set([...videoCategories.keys(), ...initialVideoCategories.keys()]);
@@ -2273,7 +2324,7 @@
                 if (hasCatChanges) break;
             }
 
-            return hasSelections || hasDeletions || hasModifiedType || hasModifiedRotation || hasDummyTimestamp || hasEditsGlobal || hasMoves || hasCatChanges;
+            return hasNewSelections || hasDeletions || hasModifiedType || hasDummyTimestamp || hasEditsGlobal || hasMoves || hasCatChanges;
         }
 
         function renderActionSummary(actions) {
@@ -2325,15 +2376,6 @@
                 lua: [],
                 categories: []
             };
-
-            // Check if any selections have editor changes (cuts, rotations, flips)
-            const hasEditorChanges = selectionsToProcess.some(sel => 
-                (sel.cuts && sel.cuts.length > 0) || 
-                (sel.markers && sel.markers.length > 0) ||
-                (sel.rotation && sel.rotation !== "0") ||
-                sel.flipped
-            );
-
 
             const displayedProjects = new Map(); // path -> name
             canvases.forEach(c => displayedProjects.set(c.path || "", c.name || ""));
@@ -2703,14 +2745,25 @@
                 const key = sel.projectPath + '|' + sel.videoName;
                 const initial = initialShortcutSelections.get(key);
                 
-                const hasEdits = (sel.cuts && sel.cuts.length > 0) || 
-                               (sel.markers && sel.markers.length > 0) ||
-                               (sel.rotation && sel.rotation !== "0") ||
-                               sel.flipped;
+                const initialRot = (initial && initial.rotation) || "0";
+                const initialFlipped = initial ? !!initial.flipped : false;
 
-                
+                const hasCuts = sel.cuts && sel.cuts.length > 0;
+                let markersChanged = sel.markers && sel.markers.length > 0;
+                if (markersChanged && sel.markers.length === 1 && sel.markers[0].frame === 0) {
+                    if (sel.markers[0].rotation.toString() === initialRot) {
+                        markersChanged = false;
+                    }
+                }
+                const needsProcessing = hasCuts || markersChanged;
+
+                const rotationChanged = sel.rotation !== initialRot;
+                const flippedChanged = !!sel.flipped !== initialFlipped;
+                const hasMetadataChanges = rotationChanged || flippedChanged;
+
                 const selectionType = sel.type;
-                if (!selectionType || selectionType === 'delete-sc') return;
+                if (!selectionType && !needsProcessing && !hasMetadataChanges && !sel.targetProject) return;
+                if (selectionType === 'delete-sc') return;
 
                 const escapedVideoName = escapePSString(sel.videoName);
                 const escapedProjectPath = escapePSString(sel.projectPath);
@@ -2720,7 +2773,7 @@
 
                 const isMoved = (escapedTargetProjectPath !== null && sel.targetProject !== sel.projectPath);
 
-                if (hasEdits) {
+                if (needsProcessing) {
                     let editDesc = `${sel.videoName} (`;
                     if (sel.rotation && sel.rotation !== "0") editDesc += `Rotate ${sel.rotation}°, `;
                     if (sel.flipped) editDesc += "H-Flip, ";
@@ -2774,11 +2827,12 @@
                 const targetBaseRes = getPSPathRes('\$BaseDir', tpToUse, tnToUse, sel.subfolder);
                 let targetPathConstruction = `(Join-Path -Path (${targetBaseRes}) -ChildPath '${escapedVideoName}')`;
 
-                scriptLines.push(`    # Managing shortcuts for: ${sel.projectPath}\\${sel.videoName} (Selection: ${selectionType})`);
-                scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath(${targetPathConstruction})`);
+                if (selectionType) {
+                    scriptLines.push(`    # Managing shortcuts for: ${sel.projectPath}\\${sel.videoName} (Selection: ${selectionType})`);
+                    scriptLines.push(`    \$targetPath = [System.IO.Path]::GetFullPath(${targetPathConstruction})`);
 
-                const wantRoot = (selectionType === 'root-sc' || selectionType === 'both-sc');
-                const wantSub = (selectionType === 'subfolder-sc' || selectionType === 'both-sc');
+                    const wantRoot = (selectionType === 'root-sc' || selectionType === 'both-sc');
+                    const wantSub = (selectionType === 'subfolder-sc' || selectionType === 'both-sc');
 
                 // Root location
                 if (wantRoot) {
@@ -2800,14 +2854,15 @@
                         summaryActions.shortcuts_new.push(`${sel.videoName} in ${tpToUse}/sc/`);
                     }
                 }
-                const scProjToUse = isMoved ? sel.targetProject : sel.projectPath;
-                const scNameToUse = isMoved ? sel.targetProject : sel.projectName;
-                const scProjRes = getPSPathRes('\$BaseDir', scProjToUse, scNameToUse, '');
-                let scDirPath = `Join-Path -Path (${scProjRes}) -ChildPath 'sc'`;
-                
-                scriptLines.push(`    Manage-Shortcut -folderPath (${scDirPath}) -videoName '${escapedVideoName}' -targetPath \$targetPath -shouldExist ${wantSub ? '$true' : '$false'}`);
+                    const scProjToUse = isMoved ? sel.targetProject : sel.projectPath;
+                    const scNameToUse = isMoved ? sel.targetProject : sel.projectName;
+                    const scProjRes = getPSPathRes('\$BaseDir', scProjToUse, scNameToUse, '');
+                    let scDirPath = `Join-Path -Path (${scProjRes}) -ChildPath 'sc'`;
 
-                scriptLines.push('');
+                    scriptLines.push(`    Manage-Shortcut -folderPath (${scDirPath}) -videoName '${escapedVideoName}' -targetPath \$targetPath -shouldExist ${wantSub ? '$true' : '$false'}`);
+
+                    scriptLines.push('');
+                }
             });
 
             // --- File Deletions (Videos and Thumbnails) ---
@@ -3016,10 +3071,16 @@
                 scriptLines.push('# --- Update Central LUA Rotation File ---');
                 scriptLines.push("\$luaPath = 'C:\\Bridge\\misc\\tools\\mpv-x86_64-v3-20260418-git-4377cce\\portable_config\\scripts\\autorotate.lua'");
                 scriptLines.push('\$script:rotatedFiles = @{}');
+
                 shortcutSelections.forEach((sel, key) => {
-                    if (sel.rotation && sel.rotation !== "0") {
-                        summaryActions.lua.push(`${sel.videoName}: Rotate ${sel.rotation}°`);
-                        scriptLines.push(`\$script:rotatedFiles['${escapePSString(sel.videoName)}'] = ${sel.rotation}`);
+                        const initial = initialShortcutSelections.get(key);
+                        const initialRot = (initial && initial.rotation) || "0";
+                        const currentRot = sel.rotation || "0";
+                        if (currentRot !== initialRot) {
+                            summaryActions.lua.push(`${sel.videoName}: Rotate ${initialRot}° -> ${currentRot}°`);
+                        }
+                        if (currentRot !== "0") {
+                            scriptLines.push(`\$script:rotatedFiles['${escapePSString(sel.videoName)}'] = ${currentRot}`);
                     }
                 });
 
@@ -3068,14 +3129,26 @@
             }
 
             // --- Update Central LUA Flip File ---
-            const flippedFiles = Array.from(shortcutSelections.values()).filter(sel => sel.flipped);
-            if (flippedFiles.length > 0) {
+                const hasFlipChanges = Array.from(shortcutSelections.entries()).some(([key, sel]) => {
+                    const initial = initialShortcutSelections.get(key);
+                    const initialFlipped = initial ? !!initial.flipped : false;
+                    return !!sel.flipped !== initialFlipped;
+                });
+
+                if (hasFlipChanges || Array.from(shortcutSelections.values()).some(sel => sel.flipped)) {
                 scriptLines.push('# --- Update Central LUA Flip File ---');
                 scriptLines.push("\$flipLuaPath = 'C:\\Bridge\\misc\\tools\\mpv-x86_64-v3-20260418-git-4377cce\\portable_config\\scripts\\flip.lua'");
                 scriptLines.push('\$script:flippedFiles = @{}');
-                flippedFiles.forEach(sel => {
-                    summaryActions.lua.push(`${sel.videoName}: H-Flip`);
-                    scriptLines.push(`\$script:flippedFiles['${escapePSString(sel.videoName)}'] = 'hflip'`);
+
+                    shortcutSelections.forEach((sel, key) => {
+                        const initial = initialShortcutSelections.get(key);
+                        const initialFlipped = initial ? !!initial.flipped : false;
+                        if (!!sel.flipped !== initialFlipped) {
+                            summaryActions.lua.push(`${sel.videoName}: H-Flip ${initialFlipped ? 'ON' : 'OFF'} -> ${sel.flipped ? 'ON' : 'OFF'}`);
+                        }
+                        if (sel.flipped) {
+                            scriptLines.push(`\$script:flippedFiles['${escapePSString(sel.videoName)}'] = 'hflip'`);
+                        }
                 });
 
                 scriptLines.push('\$allFlips = @{}');
