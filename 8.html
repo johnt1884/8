@@ -62,8 +62,68 @@
             flex-grow: 1;
             padding: 0;
             position: relative;
-            overflow: auto;
+            overflow-y: auto;
+            overflow-x: hidden;
             min-width: 0;
+        }
+        #categories-panel {
+            display: none;
+            width: 250px;
+            min-width: 100px;
+            max-width: 600px;
+            background-color: var(--toolbar-color);
+            border-left: 1px solid #444;
+            overflow-y: hidden;
+            overflow-x: hidden;
+            position: relative;
+            flex-shrink: 0;
+        }
+        #panel-content {
+            height: 100%;
+            overflow-y: scroll;
+            overflow-x: hidden;
+            scrollbar-width: none; /* Firefox */
+        }
+        #panel-content::-webkit-scrollbar {
+            display: none; /* Chrome/Safari */
+        }
+        .panel-row {
+            border-bottom: 1px solid #444;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            padding: 5px;
+            overflow: hidden;
+        }
+        .panel-video-cats {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 12px;
+            color: #eee;
+        }
+        .panel-cat-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 2px 0;
+            white-space: nowrap;
+        }
+        .panel-cat-item input {
+            margin: 0;
+        }
+        #panel-resizer {
+            display: none;
+            width: 6px;
+            cursor: col-resize;
+            background-color: transparent;
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            z-index: 10;
+        }
+        #panel-resizer:hover {
+            background-color: rgba(255, 255, 255, 0.1);
         }
         .thumbnail-wrapper {
             display: inline-block;
@@ -289,7 +349,7 @@
             padding: 0 8px 0 8px;
             padding-right: 32px;
             border: 1px solid #444444;
-            background-color: var(--top-bar-color);
+            background-color: var(--toolbar-color);
             color: #ffffff;
             border-radius: 0;
             font-size: 14px;
@@ -302,6 +362,9 @@
             background-position: right 8px center;
             background-size: 16px;
         }
+        .top-bar select {
+            background-color: var(--top-bar-color);
+        }
         select option {
             padding: 8px 12px;
             background-color: #ffffff;
@@ -311,11 +374,14 @@
             min-height: 28px;
             padding: 2px 10px;
             border: 1px solid #444444;
-            background-color: var(--top-bar-color);
+            background-color: var(--toolbar-color);
             color: #ffffff;
             border-radius: 0;
             font-size: 14px;
             cursor: pointer;
+        }
+        .top-bar .bar-button {
+            background-color: var(--top-bar-color);
         }
         .bar-button:hover {
             background-color: #166fe5;
@@ -492,7 +558,7 @@
         .multiplier-input {
             width: 50px;
             height: 30px;
-            background-color: var(--top-bar-color);
+            background-color: var(--toolbar-color);
             color: white;
             border: 1px solid #444444;
             padding: 0 4px;
@@ -617,6 +683,10 @@
                                 <label for="playlist-sc-color-picker">Playlist Selection Outline</label>
                                 <input type="color" id="playlist-sc-color-picker" value="#ff00ff">
                             </div>
+                            <div class="options-row">
+                                <label for="enable-categories-panel-checkbox">Enable Categories Panel</label>
+                                <input type="checkbox" id="enable-categories-panel-checkbox">
+                            </div>
                             <button id="revert-defaults-btn" style="width: 100%; text-align: center; border-top: 1px solid #ccc; font-weight: bold;">Revert to Default Colors</button>
                         </div>
                     </div>
@@ -661,9 +731,13 @@
                     <button id="delete-shortcuts-btn" class="bar-button" style="display: none;">Delete Selected Shortcuts</button>
                 </div>
             </div>
-            <div id="content-area" style="display: flex; flex-grow: 1; overflow: hidden;">
+            <div id="content-area" style="display: flex; flex-grow: 1; overflow: hidden; position: relative;">
                 <div id="thumbnail-container">
                     <div id="content-spacer" style="position: absolute; top: 0; left: 0; z-index: -1;"></div>
+                </div>
+                <div id="categories-panel">
+                    <div id="panel-resizer"></div>
+                    <div id="panel-content"></div>
                 </div>
             </div>
         </div>
@@ -763,6 +837,11 @@
 
     <script>
         const thumbnailContainer = document.getElementById('thumbnail-container');
+        thumbnailContainer.addEventListener('scroll', () => {
+            if (enableCategoriesPanelCheckbox.checked) {
+                panelContent.scrollTop = thumbnailContainer.scrollTop;
+            }
+        });
         const scriptModal = document.getElementById('script-modal');
         const batchScriptTextArea = document.getElementById('batch-script');
         const copyScriptBtn = document.getElementById('copy-script-btn');
@@ -874,6 +953,10 @@
         const mainContainer = document.querySelector('.main-container');
         const showDatesCheckbox = document.getElementById('show-dates-checkbox');
         const showNumbersCheckbox = document.getElementById('show-numbers-checkbox');
+        const enableCategoriesPanelCheckbox = document.getElementById('enable-categories-panel-checkbox');
+        const categoriesPanel = document.getElementById('categories-panel');
+        const panelResizer = document.getElementById('panel-resizer');
+        const panelContent = document.getElementById('panel-content');
 
         function updateRowNumbers() {
             const showNumbers = showNumbersCheckbox.checked;
@@ -891,6 +974,118 @@
                     container.insertBefore(numberSpan, container.firstChild);
                 });
             }
+        }
+
+        // Categories Panel Logic
+        let isResizingPanel = false;
+        panelResizer.addEventListener('mousedown', (e) => {
+            isResizingPanel = true;
+            document.body.style.cursor = 'col-resize';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isResizingPanel) return;
+            const contentArea = document.getElementById('content-area');
+            const rect = contentArea.getBoundingClientRect();
+            let newWidth = rect.right - e.clientX;
+            newWidth = Math.max(100, Math.min(600, newWidth));
+            categoriesPanel.style.width = newWidth + 'px';
+            layoutLandscapeThumbnails();
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isResizingPanel) {
+                isResizingPanel = false;
+                document.body.style.cursor = '';
+                localStorage.setItem('categoriesPanelWidth', categoriesPanel.style.width);
+            }
+        });
+
+        enableCategoriesPanelCheckbox.addEventListener('change', () => {
+            const enabled = enableCategoriesPanelCheckbox.checked;
+            categoriesPanel.style.display = enabled ? 'block' : 'none';
+            panelResizer.style.display = enabled ? 'block' : 'none';
+            localStorage.setItem('enableCategoriesPanel', enabled);
+            if (enabled) {
+                const savedWidth = localStorage.getItem('categoriesPanelWidth');
+                if (savedWidth) categoriesPanel.style.width = savedWidth;
+                renderCategoriesPanel();
+            }
+            layoutLandscapeThumbnails();
+        });
+
+        function renderCategoriesPanel() {
+            if (!enableCategoriesPanelCheckbox.checked) return;
+            panelContent.innerHTML = '';
+
+            if (!canvases.has(activeCanvasId)) return;
+            const canvas = canvases.get(activeCanvasId);
+            const projectPath = canvas.path;
+
+            // Get all in-play categories for this directory
+            const inPlayCats = new Set();
+            const projectVideos = allVideoFiles.filter(v => v.projectPath === projectPath);
+            projectVideos.forEach(v => {
+                const cats = videoCategories.get(projectPath + '|' + v.name);
+                if (cats) cats.forEach(c => inPlayCats.add(c));
+            });
+            const sortedInPlay = Array.from(inPlayCats).sort();
+
+            const rows = document.querySelectorAll('.landscape-row');
+            rows.forEach(row => {
+                const videoName = row.dataset.videoName;
+                const projPath = row.dataset.projectPath;
+                const videoKey = projPath + '|' + videoName;
+                const videoCats = videoCategories.get(videoKey) || new Set();
+
+                const panelRow = document.createElement('div');
+                panelRow.className = 'panel-row';
+
+                // Align with row
+                const actionBar = row.querySelector('.row-action-bar');
+                const thumbContainer = row.querySelector('.thumbnails-container');
+                const totalHeight = (actionBar ? actionBar.offsetHeight : 0) + (thumbContainer ? thumbContainer.offsetHeight : 0) + 1;
+                panelRow.style.height = totalHeight + 'px';
+
+                const catListDiv = document.createElement('div');
+                catListDiv.className = 'panel-video-cats';
+
+                if (sortedInPlay.length === 0) {
+                    const none = document.createElement('div');
+                    none.style.color = '#888';
+                    none.style.fontStyle = 'italic';
+                    none.textContent = 'No active categories';
+                    catListDiv.appendChild(none);
+                } else {
+                    sortedInPlay.forEach(cat => {
+                        const item = document.createElement('div');
+                        item.className = 'panel-cat-item';
+
+                        const cb = document.createElement('input');
+                        cb.type = 'checkbox';
+                        cb.checked = videoCats.has(cat);
+                        cb.onchange = (e) => {
+                            e.stopPropagation();
+                            toggleVideoCategory(cat, cb.checked, videoKey, projPath);
+                        };
+
+                        const label = document.createElement('label');
+                        label.textContent = cat;
+                        label.style.cursor = 'pointer';
+                        label.onclick = (e) => {
+                            e.stopPropagation();
+                            cb.click();
+                        };
+
+                        item.appendChild(cb);
+                        item.appendChild(label);
+                        catListDiv.appendChild(item);
+                    });
+                }
+
+                panelRow.appendChild(catListDiv);
+                panelContent.appendChild(panelRow);
+            });
         }
 
         // Editor Helper Functions
@@ -1092,18 +1287,23 @@
             globalCategoriesContainer.style.display = hasNewGlobal ? 'flex' : 'none';
         }
 
-        function toggleVideoCategory(catName, isAdded) {
-            const key = categoryCurrentVideo.projectPath + '|' + categoryCurrentVideo.videoName;
+        function toggleVideoCategory(catName, isAdded, videoKey = null, projectPath = null) {
+            const key = videoKey || (categoryCurrentVideo.projectPath + '|' + categoryCurrentVideo.videoName);
+            const projPath = projectPath || categoryCurrentVideo.projectPath;
+
             if (!videoCategories.has(key)) videoCategories.set(key, new Set());
             const cats = videoCategories.get(key);
             if (isAdded) {
                 cats.add(catName);
-                if (!projectCategories.has(categoryCurrentVideo.projectPath)) projectCategories.set(categoryCurrentVideo.projectPath, new Set());
-                projectCategories.get(categoryCurrentVideo.projectPath).add(catName);
+                if (!projectCategories.has(projPath)) projectCategories.set(projPath, new Set());
+                projectCategories.get(projPath).add(catName);
                 globalSavedCategories.add(catName);
                 localStorage.setItem('globalSavedCategories', JSON.stringify(Array.from(globalSavedCategories)));
             } else {
                 cats.delete(catName);
+            }
+            if (enableCategoriesPanelCheckbox.checked) {
+                renderCategoriesPanel();
             }
         }
 
@@ -1135,6 +1335,9 @@
             }
             
             topCategoriesDropdown.style.display = 'none';
+            if (enableCategoriesPanelCheckbox.checked) {
+                renderCategoriesPanel();
+            }
         }
 
         function updateTopCategoriesMenu() {
@@ -1547,6 +1750,16 @@
 
             updateCircleColors();
 
+            // Load panel state
+            const panelEnabled = localStorage.getItem('enableCategoriesPanel') === 'true';
+            enableCategoriesPanelCheckbox.checked = panelEnabled;
+            if (panelEnabled) {
+                categoriesPanel.style.display = 'block';
+                panelResizer.style.display = 'block';
+                const savedWidth = localStorage.getItem('categoriesPanelWidth');
+                if (savedWidth) categoriesPanel.style.width = savedWidth;
+            }
+
             loadButton.addEventListener('click', async () => {
                 try {
                     const dirHandle = await window.showDirectoryPicker();
@@ -1916,6 +2129,9 @@
             populateCanvasDropdown();
             layoutLandscapeThumbnails(); // Re-layout after switching canvas
             updateRowNumbers(); // Ensure numbers are shown if enabled
+            if (enableCategoriesPanelCheckbox.checked) {
+                renderCategoriesPanel();
+            }
         }
 
         function populateCanvasDropdown() {
@@ -2220,7 +2436,10 @@
             const elements = document.querySelectorAll('.landscape-row, .project-header, hr');
             const showNumbers = showNumbersCheckbox.checked;
             const paddingLR = showNumbers ? 50 : 20;
-            const containerWidth = window.innerWidth;
+            let containerWidth = window.innerWidth;
+            if (enableCategoriesPanelCheckbox.checked && categoriesPanel.style.display !== 'none') {
+                containerWidth -= categoriesPanel.offsetWidth;
+            }
             const isAuto = sizeSelector.value === 'auto';
             const isCustom = sizeSelector.value === 'custom';
             let globalScale = 1.0;
@@ -2286,6 +2505,9 @@
                 }
             });
             updateRowNumbers();
+            if (enableCategoriesPanelCheckbox.checked) {
+                renderCategoriesPanel();
+            }
             requestAnimationFrame(updateContentSpacer);
         }
 
