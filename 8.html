@@ -92,8 +92,21 @@
             box-sizing: border-box;
             display: flex;
             flex-direction: column;
-            padding: 5px;
+            padding: 0 5px;
             overflow: hidden;
+            justify-content: center;
+        }
+        .panel-header-placeholder {
+            border-bottom: 1px solid #444;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #888;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            background-color: rgba(0,0,0,0.2);
         }
         .panel-video-cats {
             flex-grow: 1;
@@ -220,11 +233,12 @@
             resize: vertical;
         }
         .landscape-row {
-            margin-bottom: 30px;
+            padding-bottom: 30px;
             display: flex;
             flex-direction: column;
             position: relative;
             width: 100%;
+            margin-bottom: 0;
         }
         .thumbnails-container {
             display: flex;
@@ -414,9 +428,9 @@
             color: var(--header-text-color);
             font-size: 1.2em;
             font-weight: bold;
-            margin-top: 20px;
+            margin-top: 0;
             margin-bottom: 0;
-            padding: 4px 20px;
+            padding: 24px 20px 4px 20px;
             display: flex;
             justify-content: flex-start;
             align-items: center;
@@ -1031,23 +1045,33 @@
             });
             const sortedInPlay = Array.from(inPlayCats).sort();
 
-            const rows = document.querySelectorAll('.landscape-row');
-            rows.forEach(row => {
-                const videoName = row.dataset.videoName;
-                const projPath = row.dataset.projectPath;
-                const videoKey = projPath + '|' + videoName;
-                const videoCats = videoCategories.get(videoKey) || new Set();
+            const elements = thumbnailContainer.children;
+            for (let el of elements) {
+                if (el.classList.contains('project-header')) {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'panel-header-placeholder';
+                    placeholder.style.height = el.offsetHeight + 'px';
+                    placeholder.textContent = 'Project Header';
+                    panelContent.appendChild(placeholder);
+                } else if (el.tagName === 'HR') {
+                    const hrPlaceholder = document.createElement('div');
+                    hrPlaceholder.style.height = el.offsetHeight + 'px';
+                    hrPlaceholder.style.borderBottom = '1px solid #444';
+                    panelContent.appendChild(hrPlaceholder);
+                } else if (el.classList.contains('landscape-row')) {
+                    const row = el;
+                    const videoName = row.dataset.videoName;
+                    const projPath = row.dataset.projectPath;
+                    const videoKey = projPath + '|' + videoName;
+                    const videoCats = videoCategories.get(videoKey) || new Set();
 
-                const panelRow = document.createElement('div');
-                panelRow.className = 'panel-row';
+                    const panelRow = document.createElement('div');
+                    panelRow.className = 'panel-row';
 
-                // Align with row
-                const actionBar = row.querySelector('.row-action-bar');
-                const thumbContainer = row.querySelector('.thumbnails-container');
-                const totalHeight = (actionBar ? actionBar.offsetHeight : 0) + (thumbContainer ? thumbContainer.offsetHeight : 0) + 1;
-                panelRow.style.height = totalHeight + 'px';
+                    // Align with row
+                    panelRow.style.height = row.offsetHeight + 'px';
 
-                const catListDiv = document.createElement('div');
+                    const catListDiv = document.createElement('div');
                 catListDiv.className = 'panel-video-cats';
 
                 if (sortedInPlay.length === 0) {
@@ -1085,7 +1109,8 @@
 
                 panelRow.appendChild(catListDiv);
                 panelContent.appendChild(panelRow);
-            });
+                }
+            }
         }
 
         // Editor Helper Functions
@@ -2336,6 +2361,19 @@
             const rightGroup = document.createElement('div');
             rightGroup.className = 'row-action-group-right';
             
+            // Check for hard rotation/flip in misc data
+            const vKey = projectPath + '|' + videoName;
+            const initial = initialShortcutSelections.get(vKey);
+            if (initial && (initial.rotation !== "0" || initial.flipped)) {
+                const rotIcon = document.createElement('span');
+                rotIcon.innerHTML = '&#8635;'; // Rotation arrow symbol
+                rotIcon.style.color = '#00ff00';
+                rotIcon.style.marginRight = '5px';
+                rotIcon.style.fontWeight = 'bold';
+                rotIcon.title = `Hard Rotation: ${initial.rotation}°, Flipped: ${initial.flipped}`;
+                rightGroup.appendChild(rotIcon);
+            }
+
             const nameSpan = document.createElement('span');
             nameSpan.className = 'row-video-name';
             nameSpan.textContent = videoName;
@@ -2781,8 +2819,8 @@
                 '    Remove-Item -LiteralPath "\$tempDir" -Recurse -Force',
                 '}',
                 '',
-                'function Update-RotationData {',
-                '    param([string]\$filePath, [hashtable]\$toAdd, [string[]]\$toRemove)',
+                'function Update-MiscData {',
+                '    param([string]\$filePath, [hashtable]\$dataUpdates)',
                 '    \$data = @{}',
                 '    if (Test-Path -LiteralPath "\$filePath") {',
                 '        Get-Content -LiteralPath "\$filePath" | ForEach-Object {',
@@ -2791,33 +2829,19 @@
                 '            }',
                 '        }',
                 '    }',
-                '    foreach (\$key in \$toRemove) { \$data.Remove(\$key) }',
-                '    foreach (\$key in \$toAdd.Keys) { \$data[\$key] = \$toAdd[\$key] }',
+                '    foreach (\$key in \$dataUpdates.Keys) {',
+                '        \$val = \$dataUpdates[\$key]',
+                '        if (\$val -eq \$null) { \$data.Remove(\$key) }',
+                '        else { \$data[\$key] = \$val }',
+                '    }',
                 '    if (\$data.Count -eq 0) {',
                 '        if (Test-Path -LiteralPath "\$filePath") { Remove-Item -LiteralPath "\$filePath" }',
                 '    } else {',
                 '        \$content = @()',
-                '        foreach (\$key in \$data.Keys) { \$content += ("{0}:{1}" -f \$key, \$data[\$key]) }',
+                '        foreach (\$key in \$data.Keys) {',
+                '            \$content += ("{0}:{1}" -f \$key, \$data[\$key])',
+                '        }',
                 '        \$content | Out-File -LiteralPath "\$filePath" -Encoding utf8',
-                '    }',
-                '}',
-                '',
-                'function Update-CategoryData {',
-                '    param([string]\$filePath, [hashtable]\$categories)',
-                '    if (\$categories.Count -eq 0) {',
-                '        if (Test-Path -LiteralPath "\$filePath") { Remove-Item -LiteralPath "\$filePath" }',
-                '    } else {',
-                '        \$content = @()',
-                '        foreach (\$key in \$categories.Keys) {',
-                '            if (\$categories[\$key]) {',
-                '                \$content += ("{0}:{1}" -f \$key, \$categories[\$key])',
-                '            }',
-                '        }',
-                '        if (\$content.Count -gt 0) {',
-                '            \$content | Out-File -LiteralPath "\$filePath" -Encoding utf8',
-                '        } elseif (Test-Path -LiteralPath "\$filePath") {',
-                '            Remove-Item -LiteralPath "\$filePath"',
-                '        }',
                 '    }',
                 '}',
                 '',
@@ -3071,8 +3095,9 @@
                     const pToUse = isMoved ? sel.targetProject : sel.projectPath;
                     const nToUse = isMoved ? sel.targetProject : sel.projectName;
                     const projPathVar = `(${getPSPathRes('\$BaseDir', pToUse, nToUse, '')})`;
-                    const rotFileVar = `(Join-Path -Path ${projPathVar} -ChildPath 'rotation_data.txt')`;
-                    scriptLines.push(`        Update-RotationData -filePath ${rotFileVar} -toAdd @{} -toRemove @('${escapedVideoName}')`);
+                    const miscFileVar = `(Join-Path -Path ${projPathVar} -ChildPath 'misc.txt')`;
+                    scriptLines.push(`        \$dataUpdates = @{ '${escapePSString(sel.videoName)}' = \$null }`);
+                    scriptLines.push(`        Update-MiscData -filePath ${miscFileVar} -dataUpdates \$dataUpdates`);
                     scriptLines.push(`    }`);
                 }
 
@@ -3248,25 +3273,17 @@
                 }
             });
 
-            // --- Category Data ---
-            const categoryUpdates = new Map(); // projectPath -> { videoName: categoriesString }
+            // --- Misc Data (Categories & Rotations) ---
+            const miscUpdates = new Map(); // projectPath -> { videoName: dataString }
             
-            // Ensure every project folder we've loaded gets an update (to allow for full removal)
-            allProjectFolders.forEach(proj => {
-                categoryUpdates.set(proj.path, {});
-            });
+            const getMiscUpdate = (proj) => {
+                if (!miscUpdates.has(proj)) miscUpdates.set(proj, {});
+                return miscUpdates.get(proj);
+            };
 
-            videoCategories.forEach((cats, key) => {
-                const [projectPath, videoName] = key.split('|');
-                if (cats.size > 0) {
-                    if (!categoryUpdates.has(projectPath)) categoryUpdates.set(projectPath, {});
-                    categoryUpdates.get(projectPath)[videoName] = Array.from(cats).join(',');
-                }
-            });
-
-            // --- Category Action Summary ---
-            const allCategoryKeys = new Set([...videoCategories.keys(), ...initialVideoCategories.keys()]);
-            allCategoryKeys.forEach(key => {
+            // Process categories into misc data
+            const allCatKeys = new Set([...videoCategories.keys(), ...initialVideoCategories.keys()]);
+            allCatKeys.forEach(key => {
                 const current = videoCategories.get(key) || new Set();
                 const initial = initialVideoCategories.get(key) || new Set();
                 const [proj, video] = key.split('|');
@@ -3282,45 +3299,56 @@
                 }
             });
 
-            if (categoryUpdates.size > 0) {
-                scriptLines.push('# --- Updating Category Data ---');
-                categoryUpdates.forEach((catsMap, projectPath) => {
+            // Process rotations/flips and combine with categories
+            const allRelevantVideos = new Set([
+                ...videoCategories.keys(),
+                ...shortcutSelections.keys(),
+                ...initialShortcutSelections.keys()
+            ]);
+
+            allRelevantVideos.forEach(key => {
+                const parts = key.split('|');
+                if (parts.length < 2) return;
+                const [projectPath, videoName] = parts;
+
+                const cats = videoCategories.get(key);
+                const sel = shortcutSelections.get(key);
+                const initial = initialShortcutSelections.get(key);
+
+                const currentRot = sel ? (sel.rotation || "0") : (initial ? initial.rotation : "0");
+                const currentFlipped = sel ? !!sel.flipped : (initial ? !!initial.flipped : false);
+
+                let dataParts = [];
+                if (cats && cats.size > 0) dataParts.push(`categories=${Array.from(cats).join(',')}`);
+                if (currentRot !== "0") dataParts.push(`rotation=${currentRot}`);
+                if (currentFlipped) dataParts.push(`flipped=true`);
+
+                const updateObj = getMiscUpdate(projectPath);
+                if (dataParts.length > 0) {
+                    updateObj[videoName] = dataParts.join(';');
+                } else {
+                    updateObj[videoName] = null; // Mark for removal
+                }
+            });
+
+            if (miscUpdates.size > 0) {
+                scriptLines.push('# --- Updating Misc Data (Categories & Rotations) ---');
+                miscUpdates.forEach((updates, projectPath) => {
                     const escapedProjectPath = escapePSString(projectPath);
                     const projectPathVar = escapedProjectPath ? `(Join-Path -Path \"$BaseDir\" -ChildPath '${escapedProjectPath}')` : '\$BaseDir';
-                    const categoryFileVar = `(Join-Path -Path ${projectPathVar} -ChildPath 'categories.txt')`;
+                    const miscFileVar = `(Join-Path -Path ${projectPathVar} -ChildPath 'misc.txt')`;
                     
-                    scriptLines.push(`\$categories = @{`);
-                    for (const [vName, cats] of Object.entries(catsMap)) {
-                        scriptLines.push(`    '${escapePSString(vName)}' = '${escapePSString(cats)}'`);
+                    scriptLines.push(`\$dataUpdates = @{`);
+                    for (const [vName, data] of Object.entries(updates)) {
+                        const val = data === null ? '$null' : `'${escapePSString(data)}'`;
+                        scriptLines.push(`    '${escapePSString(vName)}' = ${val}`);
                     }
                     scriptLines.push(`}`);
-                    scriptLines.push(`Update-CategoryData -filePath ${categoryFileVar} -categories \$categories`);
-                    scriptLines.push(`Write-Host "Updated categories.txt for ${escapedProjectPath || '(Root)'}"`);
+                    scriptLines.push(`Update-MiscData -filePath ${miscFileVar} -dataUpdates \$dataUpdates`);
+                    scriptLines.push(`Write-Host "Updated misc.txt for ${escapedProjectPath || '(Root)'}"`);
                 });
                 scriptLines.push('');
             }
-
-            if (rotationUpdates.size > 0) {
-                scriptLines.push('# --- Updating Rotation Data ---');
-                rotationUpdates.forEach((update, projectPath) => {
-                    const escapedProjectPath = escapePSString(projectPath);
-                    const projectPathVar = escapedProjectPath ? `(Join-Path -Path \"$BaseDir\" -ChildPath '${escapedProjectPath}')` : '\$BaseDir';
-                    const rotationFileVar = `(Join-Path -Path ${projectPathVar} -ChildPath 'rotation_data.txt')`;
-                    
-                    scriptLines.push(`\$toAdd = @{`);
-                    for (const [vName, rot] of Object.entries(update.toAdd)) {
-                        scriptLines.push(`    '${escapePSString(vName)}' = '${rot}'`);
-                    }
-                    scriptLines.push(`}`);
-                    scriptLines.push(`\$toRemove = @(`);
-                    update.toRemove.forEach(vName => {
-                        scriptLines.push(`    '${escapePSString(vName)}'`);
-                    });
-                    scriptLines.push(`)`);
-                    scriptLines.push(`Update-RotationData -filePath ${rotationFileVar} -toAdd \$toAdd -toRemove \$toRemove`);
-                    scriptLines.push(`Write-Host "Surgically updated rotation_data.txt for ${escapedProjectPath || '(Root)'}"`);
-                });
-                scriptLines.push('');
 
                 scriptLines.push('# --- Update Central LUA Rotation File ---');
                 scriptLines.push("\$luaPath = 'C:\\Bridge\\misc\\tools\\mpv-x86_64-v3-20260418-git-4377cce\\portable_config\\scripts\\autorotate.lua'");
@@ -3507,51 +3535,48 @@
             return key.trim().replace(/^[\\/"'\[\]]+|[\\/"'\[\]]+$/g, '').replace(/\\/g, '/').toLowerCase();
         }
 
-        async function getCategoriesData(projectHandle, projectPath) {
-            try {
-                const handle = await projectHandle.getFileHandle('categories.txt');
-                const file = await handle.getFile();
-                const text = await file.text();
-                text.split('\n').forEach(line => {
-                    const parts = line.trim().split(':');
-                    if (parts.length === 2) {
-                        const videoName = parts[0].trim();
-                        const cats = parts[1].split(',').map(c => c.trim()).filter(c => c);
-                        if (cats.length > 0) {
-                            const key = projectPath + '|' + videoName;
-                            if (!videoCategories.has(key)) videoCategories.set(key, new Set());
-                            const videoSet = videoCategories.get(key);
-                            if (!projectCategories.has(projectPath)) projectCategories.set(projectPath, new Set());
-                            const projectSet = projectCategories.get(projectPath);
-                            
-                            cats.forEach(c => {
-                                videoSet.add(c);
-                                projectSet.add(c);
-                                globalSavedCategories.add(c);
-                            });
-                            initialVideoCategories.set(key, new Set(cats));
-                        }
-                    }
-                });
-                localStorage.setItem('globalSavedCategories', JSON.stringify(Array.from(globalSavedCategories)));
-            } catch (e) {}
-        }
-
-        async function getRotationData(projectHandle) {
+        async function getMiscData(projectHandle, projectPath) {
             const rotationMap = new Map();
             try {
-                const handle = await projectHandle.getFileHandle('rotation_data.txt');
+                const handle = await projectHandle.getFileHandle('misc.txt');
                 const file = await handle.getFile();
                 const text = await file.text();
                 text.split('\n').forEach(line => {
-                    const parts = line.trim().split(':');
-                    if (parts.length >= 2) {
-                        const videoName = parts[0].trim().toLowerCase();
-                        const rotationValue = parts[1].trim();
-                        const isFlipped = parts.length > 2 && parts[2].trim().toLowerCase() === 'flip';
-                        rotationMap.set(videoName, { rotation: rotationValue, flipped: isFlipped });
-                    }
+                    const colonIdx = line.indexOf(':');
+                    if (colonIdx === -1) return;
+                    const videoName = line.substring(0, colonIdx).trim();
+                    const dataPart = line.substring(colonIdx + 1).trim();
+
+                    const sections = dataPart.split(';');
+                    let rot = "0", flip = false;
+
+                    sections.forEach(sec => {
+                        const [key, val] = sec.split('=');
+                        if (!key || !val) return;
+                        if (key === 'categories') {
+                            const cats = val.split(',').map(c => c.trim()).filter(c => c);
+                            if (cats.length > 0) {
+                                const vKey = projectPath + '|' + videoName;
+                                if (!videoCategories.has(vKey)) videoCategories.set(vKey, new Set());
+                                const videoSet = videoCategories.get(vKey);
+                                if (!projectCategories.has(projectPath)) projectCategories.set(projectPath, new Set());
+                                const projectSet = projectCategories.get(projectPath);
+                                cats.forEach(c => {
+                                    videoSet.add(c);
+                                    projectSet.add(c);
+                                    globalSavedCategories.add(c);
+                                });
+                                initialVideoCategories.set(vKey, new Set(cats));
+                            }
+                        } else if (key === 'rotation') {
+                            rot = val;
+                        } else if (key === 'flipped') {
+                            flip = (val === 'true');
+                        }
+                    });
+                    rotationMap.set(videoName.toLowerCase(), { rotation: rot, flipped: flip });
                 });
+                localStorage.setItem('globalSavedCategories', JSON.stringify(Array.from(globalSavedCategories)));
             } catch (e) {}
             return rotationMap;
         }
@@ -3852,9 +3877,8 @@
             for (const project of projectFolders) {
                 try {
                     console.log(`Processing project: ${project.name} (Path: ${project.path})`);
-                    await getCategoriesData(project.handle, project.path);
+                    const projectRotationData = await getMiscData(project.handle, project.path);
                     const projectScData = await getScDataForProject(project.handle);
-                    const projectRotationData = await getRotationData(project.handle);
                     
                     const normalizedProjectName = normalizeProjectKey(project.name);
                     const normalizedProjectPath = normalizeProjectKey(project.path);
@@ -4123,6 +4147,9 @@
                     }
                     if (projectRows.length > 0) {
                         const hr = document.createElement('hr');
+                    hr.style.margin = "0";
+                    hr.style.border = "none";
+                    hr.style.borderBottom = "1px solid #444";
                         canvasElements.push(hr);
                         canvases.set(canvasId, { id: canvasId, name: project.name, elements: canvasElements, path: project.path });
                     }
@@ -4187,7 +4214,7 @@
                 for (const [subfolderName, shortcutFileNames] of groupedBySubfolder.entries()) {
                     console.log(`Processing subfolder: ${subfolderName}`);
                     const subfolderHandle = await currentDirHandle.getDirectoryHandle(subfolderName);
-                    const projectRotationData = await getRotationData(subfolderHandle);
+                    const projectRotationData = await getMiscData(subfolderHandle, subfolderName);
                     const editDirHandle = await findDirectoryHandleByName(subfolderHandle, 'Edit Thumbnails');
 
                     const canvasId = getNextCanvasId();
@@ -4537,7 +4564,7 @@
                     let currentIndex = parseInt(localStorage.getItem(`playlist-thumb-index-${project.path}`)) || 0;
                     if (currentIndex >= candidateVideos.length) currentIndex = 0;
 
-                    const projectRotationData = await getRotationData(project.handle);
+                    const projectRotationData = await getMiscData(project.handle, project.path);
 
                     const updateDisplayedVideo = async (index) => {
                         const video = candidateVideos[index];
